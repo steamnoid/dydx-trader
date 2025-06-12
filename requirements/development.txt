@@ -1,0 +1,28 @@
+# Development Dependencies for dYdX v4 Bot
+-r production.txt
+
+# Testing Framework (95%+ Coverage Required)
+pytest>=7.4.0
+pytest-asyncio>=0.21.1
+pytest-mock>=3.12.0
+pytest-cov>=4.1.0
+pytest-xdist>=3.3.1
+pytest-benchmark>=4.0.0
+
+# Code Quality & Type Checking
+mypy>=1.7.0
+black>=23.11.0
+isort>=5.12.0
+flake8>=6.1.0
+bandit>=1.7.5
+
+# Pre-commit Hooks
+pre-commit>=3.6.0
+
+# Documentation
+sphinx>=7.2.0
+sphinx-rtd-theme>=1.3.0
+
+# Development Utilities
+ipython>=8.17.0
+jupyter>=1.0.0
