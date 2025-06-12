@@ -2,33 +2,36 @@
 // filepath: /Users/pico/Develop/github/steamnoid/injective-trader/.github/dydx_instructions/testing_strategy.instructions.md
 # dYdX v4 Perpetual Trading Comprehensive Testing Strategy Instructions
 
+## Protocol-First Development Philosophy
+**Critical**: Test against actual dYdX v4 client behavior first. Mock only when necessary. Focus on testing integration with official client, not comprehensive domain abstractions.
+
 ## 🎯 PERPETUAL TRADING BOT TESTING PYRAMID
 
 ```
                     /\
                    /  \
-                  /E2E \     <- Real dYdX v4 + Full Perpetual Trading Flows
+                  /E2E \     <- Real dYdX v4 Client + Full Protocol Flows
                  /______\
                 /        \
-               /INTEGRATION\ <- Multi-layer + Mock dYdX v4 APIs
+               /INTEGRATION\ <- Multi-layer + Official dydx-v4-client
               /__________\
              /            \
-            /   UNIT TESTS  \ <- Individual layer logic (dYdX mocked)
+            /   UNIT TESTS  \ <- Individual client integration logic
            /________________\
 ```
 
 ## 🔄 THREE-TIER TESTING STRATEGY FOR dYdX v4
 
-### Tier 1: UNIT TESTS (Foundation - 95%+ Coverage Required for Perpetuals)
-- **Scope**: Individual perpetual trading layer components
-- **Dependencies**: All external dependencies mocked (dYdX v4 APIs, gRPC, WebSocket)
-- **Purpose**: Perpetual logic validation, margin edge cases, liquidation scenarios
+### Tier 1: UNIT TESTS (Foundation - 95%+ Coverage Required for Protocol Integration)
+- **Scope**: Individual dydx-v4-client integration components
+- **Dependencies**: Mock only dydx-v4-client responses, not comprehensive abstractions
+- **Purpose**: Protocol client integration validation, response parsing, error handling
 - **Speed**: <1ms per test
-- **Coverage**: 95%+ mandatory dla każdej warstwy including margin scenarios
+- **Coverage**: 95%+ mandatory for client integration layers
 
-### Tier 2: INTEGRATION TESTS (Perpetual Layer Interactions)
-- **Scope**: Multi-layer perpetual trading interactions
-- **Dependencies**: Mix of real i mocked dYdX v4 components
+### Tier 2: INTEGRATION TESTS (Protocol Client Interactions)
+- **Scope**: Multi-layer interactions using official dydx-v4-client
+- **Dependencies**: Real dydx-v4-client with mocked network responses
 - **Purpose**: Cross-margin data flow validation, liquidation prevention interface compatibility
 - **Speed**: <1s per test
 - **Coverage**: All perpetual layer boundaries and margin calculations

@@ -2,10 +2,13 @@
 // filepath: /Users/pico/Develop/github/steamnoid/injective-trader/.github/dydx_instructions/risk_management.instructions.md
 # dYdX v4 Perpetual Trading Risk Management Framework Instructions
 
+## Protocol-First Development Philosophy
+**Critical**: Follow dYdX v4 client nomenclature and patterns directly. Use client's built-in risk calculations and margin management. Build custom risk models ON-DEMAND when they provide clear value beyond protocol features.
+
 ## 🛡️ COMPREHENSIVE PERPETUAL TRADING RISK MANAGEMENT STRATEGY
 
-### Philosophy: Liquidation Prevention First
-**Priority**: Zapobieganie likwidacji ma absolutny priorytet nad zyskami. W perpetual trading, likwidacja oznacza całkowitą stratę pozycji bez możliwości odzyskania.
+### Philosophy: Protocol-Native Liquidation Prevention First
+**Priority**: Use dYdX v4 client's native margin calculations and liquidation price calculations. Leverage protocol's cross-margin system directly. Custom risk logic only when protocol features are insufficient.
 
 ## Multi-Layer Risk Architecture for Perpetuals
 

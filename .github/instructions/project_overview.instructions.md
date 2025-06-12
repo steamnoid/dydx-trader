@@ -1,7 +1,10 @@
 # dYdX v4 Sniper Bot - Project Overview
 
+## Protocol-First Development Philosophy
+**Critical**: Follow dYdX v4 client nomenclature and patterns directly. Build domain models ON-DEMAND when they provide clear value, not comprehensively upfront. Start with official dydx-v4-client integration.
+
 ## Mission Statement
-Stworzenie w pełni autonomicznego bota tradingowego wykorzystującego dYdX v4 Protocol do sniper trading na wszystkich parach perpetual futures z wykorzystaniem zaawansowanych sygnałów i metryk do identyfikacji pozycji o największym potencjale.
+Stworzenie w pełni autonomicznego bota tradingowego wykorzystującego dYdX v4 Protocol via official dydx-v4-client to sniper trading na wszystkich parach perpetual futures z wykorzystaniem protocol-native signals and metrics.
 
 ## Cele Biznesowe
 - **Główny**: Autonomiczny sniper trading na dYdX v4 perpetual markets

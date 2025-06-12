@@ -2,27 +2,31 @@
 // filepath: /Users/pico/Develop/github/steamnoid/injective-trader/.github/dydx_instructions/implementation_roadmap.instructions.md
 # 12-Week dYdX v4 Perpetual Trading Bot Implementation Roadmap
 
-## Sprint 1: Foundation Layers for dYdX v4 (Tygodnie 1-3)
-**Cel**: Solid foundation z layers 1-3 optimized for perpetual trading
+## Protocol-First Development Philosophy
+**Critical**: Follow dYdX v4 client nomenclature and patterns directly. Build models ON-DEMAND when they provide clear value, not comprehensively upfront. Start with dydx-v4-client patterns and extend only when needed.
 
-### Week 1 - Layer 1: Data Structures & Models (dYdX v4 Focus)
-- [ ] Project structure setup for dYdX v4
-- [ ] Pydantic models dla perpetual market data
-- [ ] Position and margin data validation schemas
-- [ ] Memory-efficient structures for funding rates
-- [ ] dYdX v4 specific data types (USDC, leverage, etc.)
-- [ ] Unit tests achieving 95%+ coverage
+## Sprint 1: Foundation Layers for dYdX v4 (Tygodnie 1-3)
+**Cel**: Solid foundation with official dydx-v4-client, layers 1-3 optimized for perpetual trading
+
+### Week 1 - Layer 1: Data Structures & Models (Protocol-First)
+- [ ] Project structure setup for dYdX v4 using official client patterns
+- [ ] Use dydx-v4-client response schemas directly, minimal custom models
+- [ ] Protocol-native data validation using client type annotations
+- [ ] Memory-efficient structures using client's built-in caching
+- [ ] dYdX v4 specific data types (leverage client's existing types)
+- [ ] Unit tests achieving 95%+ coverage on protocol integration
 <!-- - [ ] Performance benchmarks for perpetual data -->
 
-### Week 2 - Layer 2: WebSocket/REST Connection Layer
-- [ ] dydx-v4-client-py integration
-- [ ] WebSocket connection for real-time data (primary)
-- [ ] REST API integration for account queries and order management
-- [ ] Noble USDC bridge handling
-- [ ] Connection management and retry logic
-- [ ] Circuit breaker implementation for dYdX nodes
-- [ ] Comprehensive unit tests (95%+ coverage)
-- [ ] Connection stability testing across networks
+### Week 2 - Layer 2: Official dydx-v4-client Integration
+- [ ] dydx-v4-client package integration (IndexerSocket, IndexerClient, NodeClient)
+- [ ] WebSocket connection using IndexerSocket for real-time data (primary)
+- [ ] REST API integration using IndexerClient for account queries and historical data
+- [ ] Blockchain operations using NodeClient for order management
+- [ ] Official client authentication (Wallet, KeyPair classes)
+- [ ] Connection management using client's built-in retry logic
+- [ ] Circuit breaker implementation leveraging client's error handling
+- [ ] Comprehensive unit tests (95%+ coverage) on client integration
+- [ ] Connection stability testing using client's network configurations
 
 ### Week 3 - Layer 3: Perpetual Market Data Processing & Aggregation
 - [ ] Real-time perpetual OHLCV processing from tick aggregation

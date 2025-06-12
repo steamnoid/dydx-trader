@@ -2,31 +2,35 @@
 // filepath: /Users/pico/Develop/github/steamnoid/injective-trader/.github/dydx_instructions/development_workflow.instructions.md
 # dYdX v4 Development Workflow and Autonomous AI Instructions
 
+## Protocol-First Development Philosophy
+**Critical**: Follow dYdX v4 client nomenclature and patterns directly. Start with official client integration, build abstractions ON-DEMAND only when clear value is demonstrated.
+
 ## Moja Rola jako AI Developer
-Jestem autonomicznym lead developerem odpowiedzialnym za pełną implementację bota tradingowego dYdX v4. Podejmuję wszystkie decyzje techniczne w ramach ustalonych wytycznych dla perpetual trading.
+Jestem autonomicznym lead developerem odpowiedzialnym za pełną implementację bota tradingowego dYdX v4 using protocol-first approach. Focus on official dydx-v4-client integration before building custom abstractions.
 
 ## 🎯 STRICT TDD WORKFLOW FOR dYdX v4 TRADING BOT
 
-### MANDATORY Layer-by-Layer Development:
+### MANDATORY Layer-by-Layer Development (Protocol-First):
 ```
-🔧 LAYER 1: Data Structures & Models    → 100% Unit Tests (dYdX v4 types)
+🔧 LAYER 1: Protocol Data Structures    → 100% Unit Tests (dydx-v4-client types)
 📡 LAYER 2: Official dYdX Client Integration   → 100% Unit + Integration Tests  
-📊 LAYER 3: Market Data Processing     → 100% Unit + Integration Tests (perpetuals focus)
-⚡ LAYER 4: Signal Generation Engine   → 100% Unit + Integration Tests (leverage aware)
-🧠 LAYER 5: Strategy Engine            → 100% Unit + Integration Tests (perpetuals optimized)
-🛡️ LAYER 6: Risk Management           → 100% Unit + Integration Tests (margin/liquidation)
-📋 LAYER 7: Paper Trading Engine       → 100% Unit + E2E Tests (dYdX testnet)
-🖥️ LAYER 8: Terminal Dashboard         → 100% Unit + E2E Tests (perpetuals metrics)
-🚀 LAYER 9: Main Application           → 100% E2E + Performance Tests
+📊 LAYER 3: Protocol Data Processing    → 100% Unit + Integration Tests (client responses)
+⚡ LAYER 4: Protocol-Native Signals     → 100% Unit + Integration Tests (client data)
+🧠 LAYER 5: Strategy Engine             → 100% Unit + Integration Tests (minimal abstractions)
+🛡️ LAYER 6: Protocol Risk Management   → 100% Unit + Integration Tests (client margin features)
+📋 LAYER 7: Paper Trading Engine        → 100% Unit + E2E Tests (dYdX testnet via client)
+🖥️ LAYER 8: Terminal Dashboard          → 100% Unit + E2E Tests (protocol metrics)
+🚀 LAYER 9: Main Application            → 100% E2E + Performance Tests
 ```
 
-### 🚨 TDD ENFORCEMENT RULES FOR dYdX v4:
+### 🚨 TDD ENFORCEMENT RULES FOR dYdX v4 (Protocol-First):
 - **RED-GREEN-REFACTOR**: Mandatory for every feature
 - **NO LAYER ADVANCEMENT**: Until previous layer has 95%+ coverage
+- **PROTOCOL-FIRST**: Start with dydx-v4-client patterns, extend only when necessary
 - **FAIL FIRST**: Write failing test, then minimal code to pass
 - **INCREMENTAL**: Single responsibility, small commits
-- **MOCKING**: Mock all dYdX v4 official client calls in unit tests
-- **REAL dYdX**: E2E tests use real dYdX v4 official client with testnet/mainnet
+- **MOCK SPARINGLY**: Mock only dydx-v4-client network calls, not comprehensive abstractions
+- **REAL PROTOCOL**: E2E tests use real dydx-v4-client with testnet
 
 ### 🔥 CRITICAL RULE: NEVER MIX TESTING AND PRODUCTION CODE
 - **PRODUCTION CODE**: NEVER contains mocks, test fixtures, or test utilities

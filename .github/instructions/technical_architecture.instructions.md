@@ -1,5 +1,15 @@
 # dYdX v4 Technical Architecture Instructions
 
+## Protocol-First Development Philosophy
+**CRITICAL CHANGE**: We now follow a "protocol-first, domain-model-on-demand" approach instead of comprehensive domain modeling upfront. Build only what the dYdX v4 protocol requires, when it's required.
+
+### Protocol-First Methodology:
+1. **Start with dYdX v4 API**: Begin with actual protocol calls and responses
+2. **Build Models On-Demand**: Create domain models only when protocol data needs structure
+3. **Avoid Over-Engineering**: Don't build comprehensive models that force-fit protocol data
+4. **Protocol Truth**: dYdX v4 API is the single source of truth for data structures
+5. **Minimal Abstractions**: Only abstract when multiple protocol calls share patterns
+
 ## Stack Technologiczny (OBOWIĄZKOWY)
 - **Język**: Python 3.11+
 - **Główna biblioteka**: dydx-v4-client (oficjalna biblioteka dYdX v4 - MANDATORY)
@@ -14,6 +24,16 @@
 - **Type Checking**: mypy z strict mode
 - **Code Quality**: black, isort, flake8, pre-commit hooks
 - **Profiling**: memory_profiler, cProfile dla optymalizacji
+
+## dYdX Testnet Credentials
+```json
+{
+  "mnemonic": "clerk oak wife parrot verb science hockey tomato father situate resource trade kangaroo protect social boil survey pulp mask soon wedding choice guilt rookie",
+  "address": "dydx1yg9wumc4hy85vd3833zd46t5rpqlkvngxud6hr",
+  "network": "testnet",
+  "description": "dYdX testnet configuration for autonomous trading bot testing"
+}
+```
 
 ## Wzorce Architektoniczne (WYMAGANE)
 - **Layered Architecture**: 9-layer stack z clear separation

@@ -1,9 +1,12 @@
 # dYdX v4 Data Sources Integration Instructions
 
+## Protocol-First Development Philosophy
+**Critical**: Follow dYdX v4 client nomenclature and patterns directly. Build domain models ON-DEMAND when they provide clear value, not comprehensively upfront.
+
 ## Źródła Danych dYdX v4 Protocol
 
 ### Jedyne Źródło Danych: dYdX v4 Perpetual DEX
-**Philosophy**: Zero external dependencies - all data from dYdX v4 ecosystem via WebSocket-first architecture
+**Philosophy**: Zero external dependencies - all data from dYdX v4 ecosystem via WebSocket-first architecture using official dydx-v4-client patterns
 
 ### Główne Strumienie Danych (WebSocket Priority)
 

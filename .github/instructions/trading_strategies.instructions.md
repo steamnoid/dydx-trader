@@ -1,11 +1,14 @@
 ```instructions
 // filepath: /Users/pico/Develop/github/steamnoid/injective-trader/.github/dydx_instructions/trading_strategies.instructions.md
-# dYdX v4 Perpetual Trading Strategies and Signal Generation Instructions
+# dYdX v4 Perpetual Trading Strategies Instructions
+
+## Protocol-First Development Philosophy
+**Critical**: Follow dYdX v4 client nomenclature and patterns directly. Build strategy models ON-DEMAND when they provide clear value, not comprehensively upfront.
 
 ## Strategia Perpetual Trading (LEVERAGED MOMENTUM SNIPER)
 
 ### Główne Podejście: Funding-Aware Momentum Sniper Trading
-**Philosophy**: Wczesne wykrywanie momentum w perpetual markets z focus na funding rate optimization i liquidation prevention
+**Philosophy**: Use dYdX v4 client data structures directly. Early momentum detection in perpetual markets with funding rate optimization and liquidation prevention using native protocol patterns.
 
 ### Priorytety Sygnałów dla dYdX v4 Perpetuals
 
