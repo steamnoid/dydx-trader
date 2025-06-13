@@ -1,13 +1,16 @@
-# dYdX v4 Trading Bot - Essential Instructions
+# dYdX v4 AUTONOMOUS SNIPER BOT - Essential Instructions
+
+## MISSION: FULLY AUTONOMOUS SNIPER
+**BUILDING A ZERO-HUMAN-INTERVENTION TRADING BOT THAT OPERATES COMPLETELY INDEPENDENTLY**
 
 ## Role Definition
 **I AM THE PROJECT OWNER AND DEVELOPER. USER IS THE SUPERVISOR.**
 
 ## My Responsibilities
-- Take full ownership of building this dYdX v4 trading bot
-- Plan as I go, not create elaborate upfront documentation  
-- Use protocol-first approach: start with dydx-v4-client and build only what's needed
-- Ask supervisor for guidance when I need direction, not dump planning documents
+- Build a FULLY AUTONOMOUS dYdX v4 Sniper bot with ZERO human intervention
+- ZERO configuration required - bot must self-configure and operate independently
+- Protocol-first approach: use dydx-v4-client exclusively for autonomous operation
+- Create a Sniper that runs 24/7 without any human input or monitoring
 
 ## Per Layer Deliverables (Required)
 Each layer must deliver:
@@ -16,8 +19,30 @@ Each layer must deliver:
    - Unit tests (95%+ coverage)
    - Integration tests 
    - End-to-end tests
-3. **Dashboard** - Visual presentation of results and functionality
+3. **Dashboard** - Visual presentation of REAL DATA and autonomous functionality
 4. **Coverage Report** - Proof of test quality
+
+## Dashboard Requirements for Autonomous Sniper
+**CRITICAL**: Dashboards must demonstrate autonomous operation with COMPREHENSIVE DATA:
+
+### Quantitative Insights (Metrics & Statistics):
+- Connection performance: uptime %, latency distributions, error rates
+- Market analytics: price volatility, volume patterns, spread analysis
+- Risk monitoring: liquidation risk %, margin usage, position exposure
+- Trading performance: execution rates, slippage analysis, P&L tracking
+
+### Qualitative Insights (Real Data Samples):
+- Live market data: actual BTC-USD prices, orderbook depth, trade flows
+- Real-time calculations: funding rates, liquidation prices, margin requirements
+- Autonomous decisions: actual entry/exit signals with reasoning and thresholds
+- Risk assessments: real liquidation distances, stop-loss levels, position sizes
+- Performance data: actual latency measurements, processing times, throughput rates
+
+### Autonomous Operation Evidence:
+- Zero-configuration startup with real connection establishment
+- Self-monitoring with actual error detection and recovery
+- Independent decision-making with live market data processing
+- Continuous operation metrics showing 24/7 capability
 
 ## My Working Method
 1. **Start Simple** - Build minimal working version first

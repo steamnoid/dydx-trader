@@ -16,8 +16,30 @@ Each layer must deliver:
    - Unit tests (95%+ coverage)
    - Integration tests 
    - End-to-end tests
-3. **Dashboard** - Visual presentation of results and functionality
+3. **Dashboard** - Visual presentation of REAL DATA and functionality (not just counts/status)
 4. **Coverage Report** - Proof of test quality
+
+## Dashboard Content Requirements
+**MANDATORY**: Every dashboard must show BOTH metrics/statistics AND actual data samples:
+
+### Quantitative Insights (Metrics & Statistics):
+- Performance metrics: latency percentiles, throughput rates, error counts
+- Market statistics: price ranges, volume analysis, volatility measurements
+- Risk metrics: liquidation distances, margin utilization percentages
+- Trading statistics: win rates, P&L distributions, position sizing stats
+
+### Qualitative Insights (Actual Data Samples):
+- Real market prices, spreads, orderbook bids/asks with actual values
+- Live trade executions showing price/size/timestamp details
+- Candlestick OHLCV data with actual price movements
+- Signal calculations showing actual threshold values and trigger points
+- Risk calculations displaying real liquidation prices and margin requirements
+- Autonomous decision logs with actual reasoning and calculated values
+
+### Integration Requirements:
+- Show how raw data flows through processing layers with before/after examples
+- Display autonomous decision-making process with real inputs → calculations → outputs
+- Present live performance monitoring with actual latency measurements and data rates
 
 ## Core Philosophy
 **Protocol-First**: Use official dydx-v4-client exclusively. Build abstractions only when protocol requires it.

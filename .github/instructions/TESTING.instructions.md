@@ -12,8 +12,36 @@ Each layer I complete must have:
 1. **Unit Tests**: 95%+ coverage, mock only dydx-v4-client network calls
 2. **Integration Tests**: Multi-layer interaction testing  
 3. **End-to-End Tests**: Real dYdX testnet validation
-4. **Dashboard**: Visual presentation of test results and functionality
+4. **Capability Dashboard**: Rich terminal UI demonstrating the layer's capabilities in action with REAL DATA CONTENT
 5. **Coverage Report**: Proof of test quality
+
+## Dashboard Data Requirements
+**CRITICAL**: Dashboards must show BOTH comprehensive metrics AND actual data content:
+
+### Quantitative Insights (Metrics & Statistics):
+- **Layer 2**: Connection uptime %, latency distributions, message throughput rates
+- **Layer 3**: Processing performance metrics, data transformation speeds, error rates
+- **Layer 4**: Signal generation frequency, threshold breach statistics, accuracy rates
+- **Layer 5**: Strategy performance stats, win/loss ratios, position sizing distributions
+- **Layer 6**: Risk metrics percentiles, liquidation frequency, margin usage patterns
+- **Layer 7**: P&L distributions, execution latency stats, slippage measurements
+- **Layer 8**: UI refresh rates, display performance, user interaction metrics
+- **Layer 9**: Overall system performance, memory/CPU usage, uptime statistics
+
+### Qualitative Insights (Actual Data Samples):
+- **Layer 2**: Real market prices, orderbook bids/asks, trade prices/sizes, candlestick OHLCV
+- **Layer 3**: Processed OHLCV values, funding rates, volume analysis, price movements
+- **Layer 4**: Actual signal values, thresholds crossed, momentum indicators
+- **Layer 5**: Strategy decisions, position sizing calculations, entry/exit logic
+- **Layer 6**: Liquidation risk percentages, margin requirements, stop-loss levels
+- **Layer 7**: P&L numbers, order fills, position tracking
+- **Layer 8**: Live data visualization, real-time charts, interactive displays
+- **Layer 9**: Complete autonomous operation with live trading decisions and risk management
+
+### Integration Requirements:
+- Show data flow transformations with before/after examples
+- Display autonomous decision-making process with real calculations
+- Present performance monitoring with actual measurements and thresholds
 
 ## Layer Testing Requirements
 
@@ -49,6 +77,7 @@ Each layer I complete must have:
 ### Layer 8: Dashboard
 **Unit Tests**: UI components, data formatting
 **Integration**: Real-time data → display pipeline
+**Capability Demo**: Interactive terminal showcasing layer functionality
 
 ### Layer 9: Main Application
 **E2E Tests**: Complete system operation
