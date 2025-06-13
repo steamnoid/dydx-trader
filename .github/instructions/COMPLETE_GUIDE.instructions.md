@@ -47,7 +47,8 @@ Each layer must deliver:
 ## Tech Stack (MANDATORY)
 - Python 3.11+ with dydx-v4-client package
 - WebSocket: IndexerSocket | REST: IndexerClient | Blockchain: NodeClient
-- Auth: Wallet + KeyPair classes | UI: rich library | Tests: pytest
+- Auth: Wallet + KeyPair classes | UI: **Rich library only** (terminal)
+- Tests: pytest + **Rich Console.capture() for dashboard E2E testing**
 
 ## Layer Development (95% Coverage Required Each)
 ```
@@ -93,7 +94,10 @@ src/dydx_bot/
 - **Unit Tests**: 95%+ per layer, mock only dydx-v4-client network calls
 - **Integration**: Multi-layer interaction testing
 - **E2E**: Real dYdX testnet validation
+- **Dashboard E2E**: Rich Console.capture() validation ensuring 100% operational guarantee
 - **Rule**: No layer advancement until 95%+ coverage achieved
+- **CRITICAL**: Never use async fixtures for dashboard objects - causes pytest hanging
+- **Pattern**: Direct object creation + try/finally cleanup with shutdown() methods
 
 ## Development Workflow
 1. **Red**: Write failing test (including edge cases)
