@@ -100,8 +100,25 @@ src/dydx_bot/
 - **Pattern**: Direct object creation + try/finally cleanup with shutdown() methods
 
 ## Development Workflow
+
+### **For Core Logic (Unit/Integration Tests)**:
 1. **Red**: Write failing test (including edge cases)
 2. **Green**: Minimal code to pass test
 3. **Refactor**: Clean, optimize code
 4. **Coverage**: Verify 95%+ coverage
+
+### **For Dashboards (Rich UI Components)**:
+1. **Dashboard First**: Build working dashboard with real data
+2. **Inspect Output**: Run dashboard, capture actual Rich console patterns
+3. **Write E2E Tests**: Create tests based on actual output patterns
+4. **Validate**: Ensure tests provide 100% operational guarantee
+5. **Refactor**: Improve dashboard based on test insights
+
+### **Rationale for Dashboard-First Approach**:
+- **Rich Console Output is Unpredictable**: ANSI codes, formatting, exact field names
+- **Visual Feedback Essential**: Need to see actual data flow and panel layouts
+- **Accurate Test Patterns**: Tests match reality, not assumptions
+- **Faster Development**: No guessing about Rich rendering behavior
+- **Better E2E Tests**: Based on real output, not imagined patterns
+
 5. **Advance**: Move to next layer only after completion

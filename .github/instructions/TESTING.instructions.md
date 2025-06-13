@@ -81,7 +81,31 @@ Each layer I complete must have:
 2. **Integration Tests**: Multi-layer interaction testing  
 3. **End-to-End Tests**: Real dYdX testnet validation
 4. **Capability Dashboard**: Rich terminal UI demonstrating the layer's capabilities in action with REAL DATA CONTENT
-5. **Coverage Report**: Proof of test quality
+5. **Dashboard E2E Tests**: Rich Console.capture() validation ensuring 100% operational guarantee
+6. **Coverage Report**: Proof of test quality
+
+## Dashboard Development Strategy
+**CRITICAL**: For Rich-based dashboards, use **Dashboard-First Development**:
+
+### Dashboard-First Approach (RECOMMENDED):
+1. **Build Working Dashboard** - Create dashboard with real dYdX data first
+2. **Run and Inspect** - See actual Rich console output, field names, formatting
+3. **Capture Patterns** - Document exact output patterns and field layouts
+4. **Write E2E Tests** - Create tests based on actual output, not assumptions
+5. **Validate Guarantee** - Ensure tests provide 100% operational guarantee
+
+### Why Dashboard-First Works Better:
+- **Rich Console Output Unpredictable** - ANSI codes, exact formatting hard to predict
+- **Visual Feedback Essential** - Need to see real data flow and panel behavior
+- **Accurate Test Patterns** - Tests match reality instead of guessed patterns
+- **Faster Development** - No blind guessing about Rich rendering
+- **Better E2E Coverage** - Tests validate what actually exists, not what should exist
+
+### Traditional TDD Problems for Rich UI:
+- **Blind Pattern Guessing** - Tests written for fields that don't exist
+- **Multiple Rewrites** - Tests fail due to wrong Rich output assumptions
+- **Slower Iteration** - Write test → fail → guess → repeat cycle
+- **Pattern Mismatches** - Expected "BTC Oracle" but got "Market Stream"
 
 ## Dashboard Data Requirements
 **CRITICAL**: Dashboards must show BOTH comprehensive metrics AND actual data content:

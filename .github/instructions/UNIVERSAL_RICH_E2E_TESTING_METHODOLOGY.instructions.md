@@ -11,6 +11,15 @@ This methodology provides a comprehensive approach to E2E testing of Rich-based 
 
 **CRITICAL PRINCIPLE**: E2E tests MUST validate actual Rich console output with REAL data, not internal data structures.
 
+**DASHBOARD-FIRST DEVELOPMENT**: Build working Rich dashboard first, then write E2E tests based on actual output patterns. Rich console formatting is too unpredictable for traditional TDD.
+
+### Development Workflow for Rich Dashboards:
+1. **Build Dashboard** - Create working dashboard with real API data
+2. **Inspect Output** - Run dashboard, capture actual Rich console patterns
+3. **Document Patterns** - Record exact field names, formatting, panel layouts
+4. **Write E2E Tests** - Create tests based on actual output, not assumptions
+5. **Validate Guarantee** - Ensure tests provide 100% operational guarantee
+
 ### 1. Static Status Data Testing
 
 **Definition**: Data that changes infrequently or represents configuration/connection state.
