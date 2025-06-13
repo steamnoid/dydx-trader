@@ -1,9 +1,23 @@
 # dYdX v4 Trading Bot - Complete Development Guide
 
-## Quick Reference
-- **Current Layer**: 2 (Connection) - ✅ COMPLETED (86.23% integration coverage achieved)
-- **Next Layer**: 3 (Data Processing) - Starting fresh with TDD approach
-- **Next Step**: Begin Layer 3 data processing with market data handling
+## My Role & Responsibilities
+**I AM THE PROJECT OWNER AND DEVELOPER. USER IS THE SUPERVISOR.**
+
+I am responsible for:
+- Taking full ownership of building this dYdX v4 trading bot
+- Planning as I go, not creating elaborate upfront documentation  
+- Using protocol-first approach: start with dydx-v4-client and build only what's needed
+- Asking supervisor for guidance when I need direction, not dumping planning documents
+
+## Per Layer Deliverables (What I Must Deliver)
+Each layer must deliver:
+1. **Working Code** - Protocol-first implementation using dydx-v4-client
+2. **Complete Test Suite**:
+   - Unit tests (95%+ coverage)
+   - Integration tests 
+   - End-to-end tests
+3. **Dashboard** - Visual presentation of results and functionality
+4. **Coverage Report** - Proof of test quality
 
 ## Core Philosophy
 **Protocol-First**: Use official dydx-v4-client exclusively. Build abstractions only when protocol requires it.
@@ -15,14 +29,14 @@
 
 ## Layer Development (95% Coverage Required Each)
 ```
-✅ Layer 2: Client Integration (COMPLETED - 86.23%)
-🔧 Layer 3: Data Processing (CURRENT - Starting TDD)
-⚡ Layer 4: Signal Generation
-🧠 Layer 5: Trading Strategies
-🛡️ Layer 6: Risk Management (liquidation prevention)
-📋 Layer 7: Paper Trading (perpetual simulation)
-🖥️ Layer 8: Terminal Dashboard
-🚀 Layer 9: Main Application
+🔧 LAYER 2: Client Integration (START HERE)
+📊 LAYER 3: Data Processing  
+⚡ LAYER 4: Signal Generation
+🧠 LAYER 5: Trading Strategies
+🛡️ LAYER 6: Risk Management (liquidation prevention)
+📋 LAYER 7: Paper Trading (perpetual simulation)
+🖥️ LAYER 8: Terminal Dashboard
+🚀 LAYER 9: Main Application
 ```
 
 ## Production Code Rules
@@ -44,7 +58,7 @@
 ## Project Structure
 ```
 src/dydx_bot/
-├── connection/     # Layer 2: dydx-v4-client wrapper (CURRENT)
+├── connection/     # Layer 2: dydx-v4-client wrapper
 ├── data/          # Layer 3: Market data processing
 ├── signals/       # Layer 4: Signal generation  
 ├── strategies/    # Layer 5: Trading strategies
@@ -59,39 +73,9 @@ src/dydx_bot/
 - **E2E**: Real dYdX testnet validation
 - **Rule**: No layer advancement until 95%+ coverage achieved
 
-## Key Components Being Built
-1. **DydxClientManager**: Official client wrapper (Layer 2 - IN PROGRESS)
-2. **Market Scanner**: Real-time perpetual monitoring
-3. **Signal Engine**: Funding-aware signal generation
-4. **Strategy Engine**: Leverage-aware trading decisions
-5. **Risk Manager**: Liquidation prevention system
-6. **Paper Trading**: Realistic perpetual trading simulation
-7. **Terminal Dashboard**: Real-time margin/position monitoring
-
-## Current Development Status
-**Layer 2 Status**: ✅ COMPLETED - 86.23% integration coverage achieved
-**Key Achievement**: Full dYdX v4 client integration with protocol-first approach
-**Ready For**: Layer 3 data processing development with TDD
-
-## dYdX v4 Integration Points
-- **IndexerSocket**: WebSocket for real-time perpetual data
-- **IndexerClient**: REST for account queries and historical data  
-- **NodeClient**: Blockchain operations for order management
-- **Wallet**: Authentication and transaction signing
-- **Network configs**: TESTNET/MAINNET configuration management
-
-## Risk Management Priorities
-- **Liquidation Prevention**: Real-time monitoring and alerts
-- **Cross-Margin Tracking**: Portfolio-wide margin utilization
-- **Funding Rate Impact**: Factor funding costs into all decisions
-- **Position Sizing**: Leverage-aware position sizing
-- **Emergency Procedures**: Rapid position closure capabilities
-
 ## Development Workflow
 1. **Red**: Write failing test (including edge cases)
 2. **Green**: Minimal code to pass test
 3. **Refactor**: Clean, optimize code
 4. **Coverage**: Verify 95%+ coverage
 5. **Advance**: Move to next layer only after completion
-
-This guide replaces all verbose instruction files. Focus on current Layer 2 completion first.

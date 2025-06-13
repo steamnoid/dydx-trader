@@ -7,19 +7,22 @@
   Unit Tests (95%+ per layer)
 ```
 
+## My Testing Deliverables Per Layer
+Each layer I complete must have:
+1. **Unit Tests**: 95%+ coverage, mock only dydx-v4-client network calls
+2. **Integration Tests**: Multi-layer interaction testing  
+3. **End-to-End Tests**: Real dYdX testnet validation
+4. **Dashboard**: Visual presentation of test results and functionality
+5. **Coverage Report**: Proof of test quality
+
 ## Layer Testing Requirements
 
-### Layer 2: dydx-v4-client Integration ✅ COMPLETED
-**Unit Tests (Completed)**:
-- Connection establishment/failure ✅
-- WebSocket subscription management ✅
-- Message parsing with malformed data ✅
-- Authentication with Wallet class ✅
-- Error handling and reconnection ✅
+### Layer 2: dydx-v4-client Integration (CURRENT TARGET)
+**Unit Tests**: Connection establishment/failure, WebSocket subscription management, Message parsing, Authentication with Wallet class, Error handling and reconnection
+**Integration**: WebSocket → client connection pipeline
+**E2E**: Real dYdX testnet connection testing
 
-**Coverage**: 86.23% achieved (target met)
-
-### Layer 3: Data Processing (CURRENT)
+### Layer 3: Data Processing
 **Unit Tests**: OHLCV aggregation, funding rate calculation, orderbook reconstruction
 **Integration**: WebSocket → processed data pipeline
 **Performance**: <25ms processing latency
@@ -57,3 +60,4 @@
 3. **95% Coverage**: Per layer before advancing
 4. **Fast Tests**: Unit tests <1s, integration <10s
 5. **Isolation**: Tests don't depend on external services (except E2E)
+6. **Dashboard**: Every layer gets a visual demonstration of functionality
