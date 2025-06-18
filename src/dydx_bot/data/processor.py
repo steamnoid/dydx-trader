@@ -15,6 +15,7 @@ from collections import deque
 import statistics
 
 from ..connection.client import DydxClient
+from ..connection.manager import get_connection_manager
 
 
 @dataclass
@@ -154,34 +155,49 @@ class MarketDataProcessor:
         self._running = False
     
     async def initialize(self, client: Optional[DydxClient] = None):
-        """Initialize processor with dYdX client"""
+        """Initialize processor with shared dYdX connection"""
         if client:
+            # Use provided client (for testing or custom setups)
             self.client = client
         else:
-            # Create client with message handler
-            self.client = DydxClient(on_message=self._handle_websocket_message)
-            await self.client.connect()
+            # Use shared connection manager - CRITICAL for single WebSocket connection
+            connection_manager = get_connection_manager()
             
-            # Start WebSocket in thread for real-time data
-            self.client.start_websocket_in_thread()
+            # Initialize shared connection if not already done
+            if not connection_manager.is_connected():
+                await connection_manager.initialize()
+            
+            # Get the shared client
+            self.client = connection_manager.get_client()
+            
+            if not self.client:
+                raise RuntimeError("Failed to get shared client from connection manager")
+            
+            # Register this processor's message handler with the shared connection
+            connection_manager.register_message_handler(self._handle_websocket_message)
         
-        # Wait a moment for connection to stabilize
-        await asyncio.sleep(3)
-        
-        # Subscribe to real-time data streams
+        # Subscribe to market data using shared connection (prevents duplicate subscriptions)
         await self._setup_data_streams()
         self._running = True
-    
+        
+        print(f"📈 MarketDataProcessor initialized for {self.market_id} (shared connection)")
+
     async def _setup_data_streams(self):
-        """Setup WebSocket subscriptions for real-time data"""
+        """Setup WebSocket subscriptions for real-time data using shared connection"""
         if not self.client:
             raise ValueError("Client not initialized")
         
-        # Subscribe to trades for OHLCV aggregation
-        await self.client.subscribe_to_trades(market_id=self.market_id)
+        # Use connection manager to prevent duplicate subscriptions
+        connection_manager = get_connection_manager()
         
-        # Subscribe to orderbook for best bid/ask
-        await self.client.subscribe_to_orderbook(market_id=self.market_id)
+        # Subscribe to required data streams for this market
+        success = await connection_manager.subscribe_to_market_data(
+            market_id=self.market_id,
+            data_types=["orderbook", "trades"]
+        )
+        
+        if not success:
+            raise RuntimeError(f"Failed to subscribe to market data for {self.market_id}")
     
     def _handle_websocket_message(self, ws, message: Dict[str, Any]):
         """Handle all WebSocket messages and route to appropriate processors"""
@@ -479,6 +495,16 @@ class MarketDataProcessor:
         # Clear client reference
         self.client = None
     
+    async def cleanup(self):
+        """Cleanup processor and unregister from shared connection"""
+        if self.client:
+            # Unregister from shared connection manager
+            connection_manager = get_connection_manager()
+            connection_manager.unregister_message_handler(self._handle_websocket_message)
+        
+        self._running = False
+        print(f"🧹 MarketDataProcessor cleanup complete for {self.market_id}")
+
     def is_running(self) -> bool:
         """Check if processor is running"""
         return self._running and self.client is not None

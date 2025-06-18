@@ -12,5 +12,6 @@ Key Components:
 """
 
 from .processor import MarketDataProcessor
+from .types import MarketDataUpdate, OrderBookUpdate, TradeUpdate
 
-__all__ = ['MarketDataProcessor']
+__all__ = ['MarketDataProcessor', 'MarketDataUpdate', 'OrderBookUpdate', 'TradeUpdate']

@@ -2,7 +2,7 @@
 ## Static Status Data vs. Streaming Data - Complete Testing Strategy
 
 ### Overview
-This methodology provides a comprehensive approach to E2E testing of Rich-based dashboards, with specific strategies for different types of data:
+This methodology provides a comprehensive approach to E2E testing of Rich-based autonomous panels, with specific strategies for different types of data:
 
 1. **Static Status Data** - Configuration, connection info, thresholds (changes rarely)
 2. **Streaming Data** - Market prices, volumes, trades (updates continuously)
@@ -11,14 +11,33 @@ This methodology provides a comprehensive approach to E2E testing of Rich-based 
 
 **CRITICAL PRINCIPLE**: E2E tests MUST validate actual Rich console output with REAL data, not internal data structures.
 
-**DASHBOARD-FIRST DEVELOPMENT**: Build working Rich dashboard first, then write E2E tests based on actual output patterns. Rich console formatting is too unpredictable for traditional TDD.
+**DEVELOPMENT APPROACH SELECTION**:
 
-### Development Workflow for Rich Dashboards:
-1. **Build Dashboard** - Create working dashboard with real API data
-2. **Inspect Output** - Run dashboard, capture actual Rich console patterns
+#### Core Business Logic: Traditional TDD
+**Components**: Engines, calculators, algorithms, processors
+**Approach**: Write failing tests first, then implement code
+**Reason**: Predictable behavior, performance-critical, well-defined I/O
+
+#### Rich UI Panels: Panel-First Development  
+**Components**: Display panels, dashboard UI, console output
+**Approach**: Build working panel first, then write tests based on actual output
+**Reason**: Rich console formatting unpredictable, visual feedback essential
+
+**PANEL-FIRST DEVELOPMENT**: Build working Rich autonomous panel first, then write E2E tests based on actual output patterns. Rich console formatting is too unpredictable for traditional TDD.
+
+### Development Workflow for Rich Autonomous Panels:
+1. **Build Panel** - Create working autonomous panel with real API data
+2. **Inspect Output** - Run panel, capture actual Rich console patterns
 3. **Document Patterns** - Record exact field names, formatting, panel layouts
 4. **Write E2E Tests** - Create tests based on actual output, not assumptions
 5. **Validate Guarantee** - Ensure tests provide 100% operational guarantee
+
+### Development Workflow for Core Business Logic:
+1. **Write Tests** - Define expected behavior with failing unit tests
+2. **Implement Code** - Make tests pass with minimal implementation
+3. **Refactor** - Optimize while maintaining test coverage
+4. **Integration** - Test cross-component functionality
+5. **Performance** - Validate latency requirements
 
 ### 1. Static Status Data Testing
 
@@ -31,16 +50,18 @@ This methodology provides a comprehensive approach to E2E testing of Rich-based 
 - Configuration thresholds
 - System resource limits
 - Error counts
+- Layer 4: Signal scoring settings (but NOT discrete thresholds)
+- Layer 4.5 (if exists): Discrete signal threshold values
 
 **Testing Approach**:
 ```python
-def test_static_status_data_validation(self, dashboard):
+def test_static_status_data_validation(self, panel):
     """Test static configuration and status data"""
-    console = dashboard.console
+    console = panel.console
     
     with console.capture() as capture:
-        panel = dashboard.render_connection_status()
-        console.print(panel)
+        panel_output = panel.render_connection_status()
+        console.print(panel_output)
     
     rich_output = capture.get()
     
@@ -64,18 +85,21 @@ def test_static_status_data_validation(self, dashboard):
 - Orderbook bid/ask spreads
 - Recent trade history
 - Performance metrics that change frequently
+- Layer 4: ONLY continuous signal scores (0-100) - NO discrete signals
+- Layer 4.5 (if exists): Discrete signal trigger events from Layer 4 scores
+- Market momentum indicators
 
 **Testing Approach - Two-Stage Validation**:
 
 #### Stage 1: Initial Data Presence
 ```python
-def test_streaming_data_initial_presence(self, dashboard):
+def test_streaming_data_initial_presence(self, panel):
     """Verify streaming data is present and reasonable"""
-    console = dashboard.console
+    console = panel.console
     
     with console.capture() as capture:
-        panel = dashboard.render_market_data()
-        console.print(panel)
+        panel_output = panel.render_market_data()
+        console.print(panel_output)
     
     rich_output = capture.get()
     
@@ -96,14 +120,14 @@ def test_streaming_data_initial_presence(self, dashboard):
 
 #### Stage 2: Data Update Validation
 ```python
-def test_streaming_data_updates_properly(self, dashboard):
+def test_streaming_data_updates_properly(self, panel):
     """Verify streaming data actually updates over time"""
-    console = dashboard.console
+    console = panel.console
     
     # Capture initial state
     with console.capture() as capture1:
-        panel = dashboard.render_market_data()
-        console.print(panel)
+        panel_output = panel.render_market_data()
+        console.print(panel_output)
     initial_output = capture1.get()
     
     # Wait for market data updates
@@ -111,8 +135,8 @@ def test_streaming_data_updates_properly(self, dashboard):
     
     # Capture updated state
     with console.capture() as capture2:
-        panel = dashboard.render_market_data()
-        console.print(panel)
+        panel_output = panel.render_market_data()
+        console.print(panel_output)
     updated_output = capture2.get()
     
     # Verify data actually changed (streaming data must update)
@@ -183,31 +207,31 @@ def validate_status_indicators(rich_output: str, expected_indicators: List[str])
 ### 4. Complete Dashboard E2E Test Structure
 
 ```python
-class TestUniversalRichDashboardE2E:
+class TestUniversalRichPanelE2E:
     
     @pytest.fixture
-    async def real_api_dashboard(self):
-        """Dashboard with REAL API connection - NO MOCKS"""
-        dashboard = Layer3RichDashboard("BTC-USD")
+    async def real_api_panel(self):
+        """Autonomous panel with REAL API connection - NO MOCKS"""
+        panel = Layer3RichPanel("BTC-USD")
         
         # REAL API CONNECTION REQUIRED
-        connected = await dashboard.connect_and_start()
+        connected = await panel.connect_and_start()
         if not connected:
             pytest.fail("REAL API CONNECTION FAILED")
         
         # Wait for both static and streaming data
         await asyncio.sleep(10)
         
-        yield dashboard
-        await dashboard.client.disconnect()
+        yield panel
+        await panel.client.disconnect()
     
-    def test_static_configuration_data(self, real_api_dashboard):
+    def test_static_configuration_data(self, real_api_panel):
         """Test static configuration and status data"""
-        # Test all static panels
+        # Test all static panel data
         # Connection status, thresholds, configuration
         pass
     
-    def test_streaming_data_presence(self, real_api_dashboard):
+    def test_streaming_data_presence(self, real_api_panel):
         """Test streaming data is present and reasonable"""
         # Test market data, prices, volumes
         pass
@@ -216,6 +240,66 @@ class TestUniversalRichDashboardE2E:
         """Test streaming data actually updates over time"""
         # Two-stage comparison test
         pass
+    
+    def test_continuous_signal_scoring(self, real_api_signal_panel):
+        """Test continuous signal scores update in real-time"""
+        console = real_api_signal_panel.console
+        
+        # Capture initial signal scores
+        with console.capture() as capture1:
+            panel_output = real_api_signal_panel.render_signal_scores()
+            console.print(panel_output)
+        initial_output = capture1.get()
+        
+        # Wait for signal score updates (should be continuous)
+        time.sleep(10)
+        
+        # Capture updated signal scores
+        with console.capture() as capture2:
+            panel_output = real_api_signal_panel.render_signal_scores()
+            console.print(panel_output)
+        updated_output = capture2.get()
+        
+        # Verify continuous signal scores are updating
+        assert initial_output != updated_output, "Signal scores not updating continuously"
+        
+        # Validate signal score format and range
+        score_pattern = r'Signal Score:\s*(\d+)%'
+        score_match = re.search(score_pattern, updated_output)
+        assert score_match, "Signal score not displayed"
+        
+        score = int(score_match.group(1))
+        assert 0 <= score <= 100, f"Signal score {score} outside valid range [0-100]"
+    
+    def test_discrete_signal_triggers(self, real_api_signal_panel):
+        """Test discrete signal triggers appear when thresholds are crossed"""
+        console = real_api_signal_panel.console
+        
+        # Monitor for signal triggers over time
+        signal_triggers = []
+        for _ in range(6):  # Monitor for 60 seconds
+            with console.capture() as capture:
+                panel_output = real_api_signal_panel.render_signal_status()
+                console.print(panel_output)
+            output = capture.get()
+            
+            # Look for discrete signal triggers
+            for signal_type in ['BUY', 'SELL', 'HOLD']:
+                if f"Signal: {signal_type}" in output:
+                    signal_triggers.append(signal_type)
+            
+            time.sleep(10)
+        
+        # Verify signal generation is working (should have some signals)
+        # Note: This may not always trigger in test timeframe, so we validate format
+        trigger_pattern = r'Signal:\s*(BUY|SELL|HOLD)'
+        with console.capture() as capture:
+            panel_output = real_api_signal_panel.render_signal_status()
+            console.print(panel_output)
+        current_output = capture.get()
+        
+        # Validate signal format exists (even if HOLD)
+        assert re.search(trigger_pattern, current_output), "No signal trigger format found"
     
     def test_performance_metrics_update(self, real_api_dashboard):
         """Test performance metrics update with real processing"""
@@ -236,10 +320,28 @@ def extract_price_from_output(rich_output: str) -> float:
     price_pattern = r'Latest Price:\s*\$[\d,]+\.?\d*'
     match = re.search(price_pattern, rich_output)
     if not match:
-        return None
+        raise ValueError("Price not found in output")
     
     price_str = re.search(r'\$[\d,]+\.?\d*', match.group()).group()
     return float(price_str.replace('$', '').replace(',', ''))
+
+def extract_signal_score_from_output(rich_output: str) -> int:
+    """Extract signal score (0-100) from Rich console output"""
+    score_pattern = r'Signal Score:\s*(\d+)%'
+    match = re.search(score_pattern, rich_output)
+    if not match:
+        raise ValueError("Signal score not found in output")
+    
+    return int(match.group(1))
+
+def extract_signal_trigger_from_output(rich_output: str) -> str:
+    """Extract current signal trigger (BUY/SELL/HOLD) from Rich console output"""
+    trigger_pattern = r'Signal:\s*(BUY|SELL|HOLD)'
+    match = re.search(trigger_pattern, rich_output)
+    if not match:
+        raise ValueError("Signal trigger not found in output")
+    
+    return match.group(1)
 
 def extract_all_numbers(rich_output: str) -> List[float]:
     """Extract all numeric values from Rich console output"""
@@ -248,9 +350,44 @@ def extract_all_numbers(rich_output: str) -> List[float]:
     return [float(m.replace(',', '')) for m in matches if m.replace(',', '').replace('.', '').isdigit()]
 
 def extract_status_indicators(rich_output: str) -> List[str]:
-    """Extract all status indicators from Rich console output"""
-    indicators = ["✅", "⚠️", "❌", "⏳", "📊", "📈", "🔴", "🟢", "🔮", "💹"]
+    """Extract status indicators from Rich console output"""
+    indicators = ["✅", "⚠️", "❌", "⏳", "📊", "📈", "🔴", "🟢", "⚡", "🎯"]
     return [ind for ind in indicators if ind in rich_output]
+
+def validate_signal_panel_output(rich_output: str) -> Dict[str, Any]:
+    """Comprehensive signal panel output validation"""
+    result = {
+        'price': None,
+        'signal_score': None,
+        'signal_trigger': None,
+        'indicators': [],
+        'has_streaming_data': False,
+        'has_static_data': False
+    }
+    
+    try:
+        result['price'] = extract_price_from_output(rich_output)
+        result['has_streaming_data'] = True
+    except ValueError:
+        pass
+    
+    try:
+        result['signal_score'] = extract_signal_score_from_output(rich_output)
+    except ValueError:
+        pass
+    
+    try:
+        result['signal_trigger'] = extract_signal_trigger_from_output(rich_output)
+    except ValueError:
+        pass
+    
+    result['indicators'] = extract_status_indicators(rich_output)
+    
+    # Check for static data patterns
+    static_patterns = ['BTC-USD', 'dYdX Mainnet', 'Connection Status']
+    result['has_static_data'] = any(pattern in rich_output for pattern in static_patterns)
+    
+    return result
 ```
 
 ### 6. Testing Best Practices
@@ -266,6 +403,12 @@ def extract_status_indicators(rich_output: str) -> List[str]:
 3. **Freshness Checks** - Recent timestamps, current market conditions
 4. **Performance Impact** - Streaming updates shouldn't degrade performance
 
+#### Signal-Specific Testing:
+1. **Continuous Scoring** - Signal scores (0-100) must update continuously
+2. **Discrete Triggers** - Signal triggers (BUY/SELL/HOLD) must be properly formatted
+3. **Threshold Validation** - Signal thresholds must be configurable and functional
+4. **Real-Time Updates** - Signal data must reflect current market conditions
+
 #### Universal Principles:
 1. **REAL API ONLY** - No mocks in E2E tests
 2. **Rich Console Validation** - Test actual rendered output
@@ -280,5 +423,6 @@ def extract_status_indicators(rich_output: str) -> List[str]:
 3. **Phase 3**: Implement streaming data update validation ✅ COMPLETE
 4. **Phase 4**: Create complete E2E test suite ✅ COMPLETE
 5. **Phase 5**: Update all instruction files with methodology ✅ COMPLETE
+6. **Phase 6**: Add signal-specific testing patterns ✅ COMPLETE
 
-**STATUS**: This methodology ensures 100% operational guarantee by testing both configuration accuracy (static data) and real-time operation (streaming data) using actual Rich console output validation.
+**STATUS**: This methodology ensures 100% operational guarantee by testing both configuration accuracy (static data) and real-time operation (streaming data) using actual Rich console output validation, with specific support for continuous signal scoring and discrete signal triggers.

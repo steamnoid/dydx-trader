@@ -7,8 +7,8 @@
   Unit Tests (95%+ per layer)
 ```
 
-## CRITICAL: Dashboard E2E Testing Operational Guarantee
-**MANDATORY PRINCIPLE**: Dashboard E2E tests using Rich Console.capture() must provide a 100% operational guarantee. When Rich-based E2E tests pass, the dashboard MUST work flawlessly with all data fields updating correctly.
+## CRITICAL: Panel E2E Testing Operational Guarantee
+**MANDATORY PRINCIPLE**: Panel E2E tests using Rich Console.capture() must provide a 100% operational guarantee. When Rich-based E2E tests pass, the panel MUST work flawlessly with all data fields updating correctly.
 
 ### Universal Rich E2E Testing Methodology ✅ VALIDATED
 **Status**: COMPLETE AND PROVEN
@@ -65,11 +65,11 @@ assert initial_output != updated_output  # Must update for autonomous operation
 1. **Console Output Validation**: Rich provides reliable Console.capture() for testing actual display output
 2. **No False Positives**: Unlike Textual, Rich testing directly validates what users see
 3. **Field-Level Assertions**: Can assert specific text content, formatting, and data values
-4. **Operational Reliability**: Rich tests passing guarantees dashboard functionality
+4. **Operational Reliability**: Rich tests passing guarantees panel functionality
 5. **Real Data Integration**: Rich console capture works seamlessly with live data streams
 
 ### Textual Testing Problems (AVOID):
-- Tests can pass while dashboard fails to run
+- Tests can pass while panel fails to run
 - No reliable E2E testing framework  
 - False positives common
 - Runtime errors not caught by tests
@@ -80,40 +80,87 @@ Each layer I complete must have:
 1. **Unit Tests**: 95%+ coverage, mock only dydx-v4-client network calls
 2. **Integration Tests**: Multi-layer interaction testing  
 3. **End-to-End Tests**: Real dYdX testnet validation
-4. **Capability Dashboard**: Rich terminal UI demonstrating the layer's capabilities in action with REAL DATA CONTENT
-5. **Dashboard E2E Tests**: Rich Console.capture() validation ensuring 100% operational guarantee
+4. **Capability Panel(s)**: Rich terminal UI demonstrating the layer's capabilities in action with REAL DATA CONTENT
+5. **Panel E2E Tests**: Rich Console.capture() validation ensuring 100% operational guarantee
 6. **Coverage Report**: Proof of test quality
 
-## Dashboard Development Strategy
-**CRITICAL**: For Rich-based dashboards, use **Dashboard-First Development**:
+## Panel Development Strategy
+**CRITICAL**: Use the correct development approach based on component type:
 
-### Dashboard-First Approach (RECOMMENDED):
-1. **Build Working Dashboard** - Create dashboard with real dYdX data first
+### Core Business Logic Development (STRICT TDD-FIRST):
+**Components**: Engines, calculators, algorithms, data processors
+**Approach**: STRICT Test-Driven Development - NO EXCEPTIONS
+
+**MANDATORY TDD PROCESS:**
+1. **Write ONE Test Function** - Single failing test case only
+2. **RUN TEST** - Verify it FAILS (RED phase)
+3. **Write Minimal Production Code** - Only enough to pass that ONE test
+4. **RUN TEST** - Verify it PASSES (GREEN phase)
+5. **Minimal Refactor** - Clean only if absolutely necessary
+6. **RUN TEST** - Verify it still PASSES after refactor
+7. **Repeat Cycle** - Write next ONE test function
+
+**WHEN TO RUN TESTS:**
+- **ALWAYS after writing a test** - Must see RED (failing)
+- **ALWAYS after writing production code** - Must see GREEN (passing)
+- **ALWAYS after any refactor** - Must stay GREEN (passing)
+- **NO CODE without running the test immediately**
+
+**STRICT ENFORCEMENT:**
+- Write ONLY ONE test function at a time
+- RUN TEST after every single change
+- Write ONLY enough code to pass the current test
+- NO comprehensive implementations before tests
+- NO creating multiple files simultaneously
+- MUST follow Red→Green→Refactor with test runs for every function
+- NO skipping test runs or taking shortcuts
+
+**Examples**: SignalEngine, RiskCalculator, MarketDataProcessor, OrderExecutor
+
+### Rich Panel Development (PANEL-FIRST):
+**Components**: Display panels, dashboard components, UI elements  
+**Approach**: Panel-First Development
+
+1. **Build Working Panel** - Create autonomous panel with real dYdX data first
 2. **Run and Inspect** - See actual Rich console output, field names, formatting
 3. **Capture Patterns** - Document exact output patterns and field layouts
 4. **Write E2E Tests** - Create tests based on actual output, not assumptions
 5. **Validate Guarantee** - Ensure tests provide 100% operational guarantee
 
-### Why Dashboard-First Works Better:
+**Examples**: MarketDataPanel, SignalPanel, RiskPanel, TradingPanel
+
+### Why Different Approaches Are Required:
+
+#### Core Logic TDD Benefits:
+- **Predictable I/O**: Business logic has well-defined inputs and outputs
+- **Performance Critical**: Must meet strict latency requirements
+- **Algorithm Validation**: Complex calculations need comprehensive test coverage
+- **Protocol Integration**: Direct dydx-v4-client integration requires robust testing
+- **Layer 4 Continuous Scoring**: Real-time signal opportunity scoring algorithms (0-100 only)
+- **Single-Market Focus**: Each signal engine handles one market independently with NO discrete outputs
+
+#### Panel-First Benefits:
 - **Rich Console Output Unpredictable** - ANSI codes, exact formatting hard to predict
 - **Visual Feedback Essential** - Need to see real data flow and panel behavior
 - **Accurate Test Patterns** - Tests match reality instead of guessed patterns
 - **Faster Development** - No blind guessing about Rich rendering
 - **Better E2E Coverage** - Tests validate what actually exists, not what should exist
+- **Streaming Data Validation** - Real-time market data display testing
+- **Layer 4 Score Visualization** - Continuous signal scoring display validation (0-100 only)
 
-### Traditional TDD Problems for Rich UI:
+#### Traditional TDD Problems for Rich UI:
 - **Blind Pattern Guessing** - Tests written for fields that don't exist
 - **Multiple Rewrites** - Tests fail due to wrong Rich output assumptions
 - **Slower Iteration** - Write test → fail → guess → repeat cycle
 - **Pattern Mismatches** - Expected "BTC Oracle" but got "Market Stream"
 
-## Dashboard Data Requirements
-**CRITICAL**: Dashboards must show BOTH comprehensive metrics AND actual data content:
+## Panel Data Requirements
+**CRITICAL**: Autonomous panels must show BOTH comprehensive metrics AND actual data content:
 
 ### Quantitative Insights (Metrics & Statistics):
 - **Layer 2**: Connection uptime %, latency distributions, message throughput rates
 - **Layer 3**: Processing performance metrics, data transformation speeds, error rates
-- **Layer 4**: Signal generation frequency, threshold breach statistics, accuracy rates
+- **Layer 4**: Continuous signal scores (0-100) only - NO discrete signals, signal scoring frequency, threshold monitoring (if Layer 4.5 exists), accuracy rates
 - **Layer 5**: Strategy performance stats, win/loss ratios, position sizing distributions
 - **Layer 6**: Risk metrics percentiles, liquidation frequency, margin usage patterns
 - **Layer 7**: P&L distributions, execution latency stats, slippage measurements
@@ -123,8 +170,9 @@ Each layer I complete must have:
 ### Qualitative Insights (Actual Data Samples):
 - **Layer 2**: Real market prices, orderbook bids/asks, trade prices/sizes, candlestick OHLCV
 - **Layer 3**: Processed OHLCV values, funding rates, volume analysis, price movements
-- **Layer 4**: Actual signal values, thresholds crossed, momentum indicators
-- **Layer 5**: Strategy decisions, position sizing calculations, entry/exit logic
+- **Layer 4**: ONLY continuous signal scores (0-100), real-time score updates, momentum indicators - NO discrete signals or triggers
+- **Layer 4.5** (if implemented): Discrete signal triggers from continuous scores, threshold breaches, signal state changes
+- **Layer 5**: Multi-market strategy decisions, position sizing calculations, cross-market comparisons, sniper entry/exit logic
 - **Layer 6**: Liquidation risk percentages, margin requirements, stop-loss levels
 - **Layer 7**: P&L numbers, order fills, position tracking
 - **Layer 8**: Live data visualization, real-time charts, interactive displays
@@ -147,14 +195,19 @@ Each layer I complete must have:
 **Integration**: WebSocket → processed data pipeline
 **Performance**: <25ms processing latency
 
-### Layer 4: Signals
-**Unit Tests**: Signal calculations, funding rate integration
-**Integration**: Data → signal generation pipeline
-**Performance**: Real-time signal generation
+### Layer 4: Continuous Signal Scoring (ONLY)
+**Unit Tests**: Continuous signal score calculations (0-100), single-market signal algorithms, funding rate integration - NO discrete signal generation
+**Integration**: Market data → continuous scoring pipeline (NO thresholds or discrete outputs), single WebSocket connection validation
+**Performance**: Real-time signal generation with <25ms latency, shared connection efficiency
 
-### Layer 5: Strategies
-**Unit Tests**: Decision logic, position sizing, leverage management
-**Integration**: Signal → strategy decision pipeline
+### Layer 4.5: Discrete Signal Generation (IF NEEDED)
+**Unit Tests**: Discrete signal threshold detection, continuous score → discrete trigger conversion, signal state management
+**Integration**: Continuous scores → discrete trigger → strategy input pipeline
+**Performance**: <25ms threshold evaluation latency
+
+### Layer 5: Multi-Market Sniper Strategies
+**Unit Tests**: Multi-market decision logic, cross-market signal comparison, portfolio allocation algorithms, sniper strategy orchestration
+**Integration**: Multiple signal inputs → strategy decision → position sizing pipeline
 
 ### Layer 6: Risk Management
 **Unit Tests**: Liquidation calculations, margin requirements
@@ -175,22 +228,22 @@ Each layer I complete must have:
 **E2E Tests**: Complete system operation
 **Performance**: Full system within resource limits
 
-## Dashboard E2E Testing Strategy
+## Panel E2E Testing Strategy
 
-### CRITICAL: Rich-Based Dashboard Testing for 100% Operational Validation
-**MANDATORY REQUIREMENT**: Dashboard E2E tests using Rich library must validate ALL data fields with real mainnet/testnet data to ensure 100% operational validation. When dashboard tests pass, the dashboard MUST be 100% functional with all data fields updating correctly.
+### CRITICAL: Rich-Based Panel Testing for 100% Operational Validation
+**MANDATORY REQUIREMENT**: Panel E2E tests using Rich library must validate ALL data fields with real mainnet/testnet data to ensure 100% operational validation. When panel tests pass, the panel MUST be 100% functional with all data fields updating correctly.
 
 #### Rich Testing Framework Requirements:
 1. **Rich Library Only**: Use Rich's Console.capture() and export methods for E2E testing
-2. **Textual Prohibited**: Textual lacks reliable E2E testing - causes false positives where tests pass but dashboard fails
+2. **Textual Prohibited**: Textual lacks reliable E2E testing - causes false positives where tests pass but panel fails
 3. **Console Output Validation**: Capture and assert all Rich console output content
-4. **Field-Level Text Assertions**: Validate specific data values in captured dashboard output
+4. **Field-Level Text Assertions**: Validate specific data values in captured panel output
 
-#### Dashboard Field Validation Requirements:
-1. **Complete Data Field Coverage**: Every dashboard field must have dedicated Rich output assertions
+#### Panel Field Validation Requirements:
+1. **Complete Data Field Coverage**: Every panel field must have dedicated Rich output assertions
 2. **Real Data Validation**: All tests must use actual dYdX mainnet/testnet data flows
 3. **Granular Rich Assertions**: Both quantitative metrics AND qualitative data content in console output
-4. **Autonomous Operation**: Validate dashboard's ability to operate independently with live data
+4. **Autonomous Operation**: Validate panel's ability to operate independently with live data
 5. **Abstraction Level Testing**: Test at Rich console output level, not underlying component level
 6. **100% Operational Guarantee**: Test must ensure dashboard runs successfully when tests pass
 
