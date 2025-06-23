@@ -5,9 +5,9 @@ Signal Manager - MINIMAL code to pass ONE test only.
 from datetime import datetime
 from typing import Dict, Any
 from src.dydx_bot.signals.engine import (
-    MomentumEngine, 
+    MomentumEngine,
     VolumeEngine, 
-    VolatilityEngine, 
+    VolatilityEngine,
     OrderbookEngine
 )
 from src.dydx_bot.signals.types import SignalSet

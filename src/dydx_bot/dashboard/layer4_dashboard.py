@@ -27,8 +27,8 @@ from dydx_v4_client.indexer.rest.indexer_client import IndexerClient
 
 # Import Layer 4 signal engines
 try:
-    from src.dydx_bot.signals.types import SignalSet
-    from src.dydx_bot.signals.engine import MomentumEngine, VolumeEngine, VolatilityEngine, OrderbookEngine
+    from dydx_bot.signals.types import SignalSet
+    from dydx_bot.signals.engine import MomentumEngine, VolumeEngine, VolatilityEngine, OrderbookEngine
     ENGINES_AVAILABLE = True
 except ImportError:
     # Fallback signal set for demonstration

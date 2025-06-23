@@ -1,9 +1,5 @@
 """Integration tests for Layer 4: SignalManager and ConnectionManager."""
 
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
-
 import pytest
 from src.dydx_bot.signals.manager import SignalManager
 from src.dydx_bot.signals.connection_manager import ConnectionManager

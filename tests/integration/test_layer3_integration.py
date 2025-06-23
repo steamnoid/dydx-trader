@@ -40,48 +40,60 @@ class TestLayer3Integration:
         """Test processor initialization with client integration"""
         processor = MarketDataProcessor(market_id="BTC-USD")
         
-        try:
-            # Test initialization with provided client - this should call _setup_data_streams
-            await processor.initialize(client=mock_client)
+        # Mock the connection manager to prevent real subscription attempts
+        with patch('dydx_bot.data.processor.get_connection_manager') as mock_get_conn:
+            mock_connection_manager = AsyncMock()
+            mock_connection_manager.subscribe_to_market_data.return_value = True
+            mock_get_conn.return_value = mock_connection_manager
             
-            # Verify client integration calls for subscription only (not websocket start)
-            mock_client.subscribe_to_trades.assert_called_once_with(market_id="BTC-USD")
-            mock_client.subscribe_to_orderbook.assert_called_once_with(market_id="BTC-USD")
-            
-            # Verify processor state
-            assert processor.client is mock_client
-            assert processor.is_running()
-        finally:
-            # GUARANTEED cleanup
-            await processor.shutdown()
-            mock_client.disconnect.assert_called_once()
+            try:
+                # Test initialization with provided client - this should call _setup_data_streams
+                await processor.initialize(client=mock_client)
+                
+                # Verify connection manager was used instead of direct client calls
+                mock_connection_manager.subscribe_to_market_data.assert_called_once_with(
+                    market_id="BTC-USD",
+                    data_types=["orderbook", "trades"]
+                )
+                
+                # Verify processor state
+                assert processor.client is mock_client
+                assert processor.is_running()
+            finally:
+                # GUARANTEED cleanup
+                await processor.shutdown()
 
     @pytest.mark.asyncio 
     async def test_processor_websocket_initialization(self):
         """Test processor initialization with WebSocket setup when no client provided"""
         processor = MarketDataProcessor(market_id="BTC-USD")
         
-        # Mock the DydxClient creation to avoid real connections
-        with patch('dydx_bot.data.processor.DydxClient') as mock_client_class:
+        # Mock the connection manager instead of DydxClient directly
+        with patch('dydx_bot.data.processor.get_connection_manager') as mock_get_conn:
+            mock_connection_manager = Mock()  # Non-async mock for the manager itself
             mock_client_instance = AsyncMock()
-            # start_websocket_in_thread is not async in real implementation
-            mock_client_instance.start_websocket_in_thread = Mock()
-            mock_client_class.return_value = mock_client_instance
+            
+            # Setup connection manager mocks - some methods are not async
+            mock_connection_manager.is_connected.return_value = False  # sync method
+            mock_connection_manager.initialize = AsyncMock()  # async method
+            mock_connection_manager.get_client.return_value = mock_client_instance  # sync method
+            mock_connection_manager.register_message_handler = Mock()  # sync method
+            mock_connection_manager.subscribe_to_market_data = AsyncMock(return_value=True)  # async method
+            mock_get_conn.return_value = mock_connection_manager
             
             try:
-                # Test initialization without provided client - should create and setup WebSocket
+                # Test initialization without provided client - should use connection manager
                 await processor.initialize()
                 
-                # Verify client was created with message handler
-                mock_client_class.assert_called_once()
-                call_args = mock_client_class.call_args
-                assert 'on_message' in call_args.kwargs
-                
-                # Verify client setup calls
-                mock_client_instance.connect.assert_called_once()
-                mock_client_instance.start_websocket_in_thread.assert_called_once()
-                mock_client_instance.subscribe_to_trades.assert_called_once_with(market_id="BTC-USD")
-                mock_client_instance.subscribe_to_orderbook.assert_called_once_with(market_id="BTC-USD")
+                # Verify connection manager was used
+                mock_connection_manager.is_connected.assert_called_once()
+                mock_connection_manager.initialize.assert_called_once()
+                mock_connection_manager.get_client.assert_called_once()
+                mock_connection_manager.register_message_handler.assert_called_once()
+                mock_connection_manager.subscribe_to_market_data.assert_called_once_with(
+                    market_id="BTC-USD",
+                    data_types=["orderbook", "trades"]
+                )
                 
                 # Verify processor state
                 assert processor.client is mock_client_instance
@@ -89,68 +101,73 @@ class TestLayer3Integration:
             finally:
                 # GUARANTEED cleanup
                 await processor.shutdown()
-                mock_client_instance.disconnect.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_end_to_end_message_processing_pipeline(self, mock_client):
         """Test complete message processing pipeline from WebSocket to data structures"""
         processor = MarketDataProcessor(market_id="BTC-USD")
         
-        try:
-            await processor.initialize(client=mock_client)
+        # Mock the connection manager to prevent real subscription attempts
+        with patch('dydx_bot.data.processor.get_connection_manager') as mock_get_conn:
+            mock_connection_manager = Mock()
+            mock_connection_manager.subscribe_to_market_data = AsyncMock(return_value=True)
+            mock_get_conn.return_value = mock_connection_manager
             
-            # Simulate incoming trade message through WebSocket handler
-            trade_message = {
-                "type": "channel_data",
-                "channel": "v4_trades",
-                "id": "BTC-USD",
-                "contents": {
-                    "trades": [
-                        {
-                            "id": "test-trade-123",
-                            "price": "45000.50",
-                            "size": "0.1",
-                            "side": "BUY",
-                            "createdAt": "2024-01-15T12:30:45.123Z",
-                            "resources": {"markets": {"BTC-USD": {"id": "BTC-USD"}}}
-                        }
-                    ]
-                }
-            }
-            
-            # Process through WebSocket handler (simulating real flow)
-            processor._handle_websocket_message(mock_client, trade_message)
-            
-            # Verify data processed correctly
-            assert processor.metrics.messages_processed == 1
-            assert processor.current_candle is not None
-            assert processor.current_candle['open'] == 45000.50
-            assert processor.current_candle['volume'] == 0.1
-            
-            # Simulate orderbook message
-            orderbook_message = {
-                "type": "channel_data",
-                "channel": "v4_orderbook",
-                "id": "BTC-USD",
-                "contents": {
-                    "orderbook": {
-                        "bids": [{"price": "45000.00", "size": "2.0"}],
-                        "asks": [{"price": "45001.00", "size": "1.5"}]
+            try:
+                await processor.initialize(client=mock_client)
+                
+                # Simulate incoming trade message through WebSocket handler
+                trade_message = {
+                    "type": "channel_data",
+                    "channel": "v4_trades",
+                    "id": "BTC-USD",
+                    "contents": {
+                        "trades": [
+                            {
+                                "id": "test-trade-123",
+                                "price": "45000.50",
+                                "size": "0.1",
+                                "side": "BUY",
+                                "createdAt": "2024-01-15T12:30:45.123Z",
+                                "resources": {"markets": {"BTC-USD": {"id": "BTC-USD"}}}
+                            }
+                        ]
                     }
                 }
-            }
-            
-            processor._handle_websocket_message(mock_client, orderbook_message)
-            
-            # Verify orderbook processing
-            assert processor.metrics.messages_processed == 2
-            latest_orderbook = processor.get_latest_orderbook()
-            assert latest_orderbook is not None
-            assert latest_orderbook.best_bid == 45000.00
-            assert latest_orderbook.best_ask == 45001.00
-            
-        finally:
-            await processor.shutdown()
+                
+                # Process through WebSocket handler (simulating real flow)
+                processor._handle_websocket_message(mock_client, trade_message)
+                
+                # Verify data processed correctly
+                assert processor.metrics.messages_processed == 1
+                assert processor.current_candle is not None
+                assert processor.current_candle['open'] == 45000.50
+                assert processor.current_candle['volume'] == 0.1
+                
+                # Simulate orderbook message
+                orderbook_message = {
+                    "type": "channel_data",
+                    "channel": "v4_orderbook",
+                    "id": "BTC-USD",
+                    "contents": {
+                        "orderbook": {
+                            "bids": [{"price": "45000.00", "size": "2.0"}],
+                            "asks": [{"price": "45001.00", "size": "1.5"}]
+                        }
+                    }
+                }
+                
+                processor._handle_websocket_message(mock_client, orderbook_message)
+                
+                # Verify orderbook processing
+                assert processor.metrics.messages_processed == 2
+                latest_orderbook = processor.get_latest_orderbook()
+                assert latest_orderbook is not None
+                assert latest_orderbook.best_bid == 45000.00
+                assert latest_orderbook.best_ask == 45001.00
+            finally:
+                # GUARANTEED cleanup
+                await processor.shutdown()
 
     def test_multi_message_integration_performance(self, mock_client):
         """Test performance with multiple messages simulating real market load"""

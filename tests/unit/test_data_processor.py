@@ -58,21 +58,30 @@ class TestMarketDataProcessor:
     
     @pytest.mark.asyncio
     async def test_initialize_creates_internal_client(self, processor):
-        """Test initialization creates internal client"""
-        with patch('src.dydx_bot.data.processor.DydxClient') as mock_dydx_client, \
-             patch.object(processor, '_setup_data_streams') as mock_setup:
-            
+        """Test initialization uses connection manager when no client provided"""
+        with patch('src.dydx_bot.data.processor.get_connection_manager') as mock_get_conn:
+            mock_connection_manager = Mock()
             mock_client_instance = AsyncMock()
-            # start_websocket_in_thread is not async in real implementation
-            mock_client_instance.start_websocket_in_thread = Mock()
-            mock_dydx_client.return_value = mock_client_instance
+            
+            # Setup connection manager mocks
+            mock_connection_manager.is_connected.return_value = False
+            mock_connection_manager.initialize = AsyncMock()
+            mock_connection_manager.get_client.return_value = mock_client_instance
+            mock_connection_manager.register_message_handler = Mock()
+            mock_connection_manager.subscribe_to_market_data = AsyncMock(return_value=True)
+            mock_get_conn.return_value = mock_connection_manager
             
             await processor.initialize()
             
-            mock_dydx_client.assert_called_once_with(on_message=processor._handle_websocket_message)
-            mock_client_instance.connect.assert_called_once()
-            mock_client_instance.start_websocket_in_thread.assert_called_once()
-            mock_setup.assert_called_once()
+            # Verify connection manager was used instead of direct client creation
+            mock_connection_manager.is_connected.assert_called_once()
+            mock_connection_manager.initialize.assert_called_once()
+            mock_connection_manager.get_client.assert_called_once()
+            mock_connection_manager.register_message_handler.assert_called_once_with(processor._handle_websocket_message)
+            mock_connection_manager.subscribe_to_market_data.assert_called_once_with(
+                market_id="BTC-USD",
+                data_types=["orderbook", "trades"]
+            )
             assert processor._running
     
     def test_ohlcv_data_creation(self):
@@ -439,9 +448,15 @@ class TestMarketDataProcessor:
     @pytest.mark.asyncio
     async def test_shutdown(self, processor, mock_client):
         """Test processor shutdown"""
-        # Initialize processor
-        await processor.initialize(client=mock_client)
-        assert processor._running
+        # Mock the connection manager to avoid real WebSocket operations
+        with patch('src.dydx_bot.data.processor.get_connection_manager') as mock_get_manager:
+            mock_manager = Mock()
+            mock_manager.subscribe_to_market_data = AsyncMock(return_value=True)
+            mock_get_manager.return_value = mock_manager
+            
+            # Initialize processor
+            await processor.initialize(client=mock_client)
+            assert processor._running
         
         # Add some current candle data
         processor.current_candle = {
