@@ -1,7 +1,19 @@
 # dYdX v4 AUTONOMOUS SNIPER BOT - Essential Instructions
 
-## MISSION: FULLY AUTONOMOUS SNIPER
-**BUILDING A ZERO-HUMAN-INTERVENTION TRADING BOT THAT OPERATES COMPLETELY INDEPENDENTLY**
+## MISSION: FULLY AUTONOMOUS REACTIVE SNIPER
+**BUILDING A ZERO-HUMAN-INTERVENTION RXPY-BASED STREAMING TRADING BOT THAT OPERATES COMPLETELY INDEPENDENTLY**
+
+## ARCHITECTURAL PARADIGM SHIFT: RxPY/REACTIVE PROGRAMMING
+**Status**: MIGRATION IN PROGRESS - Refactoring to RxPY from Layer 2 upward
+**Target**: Unified streaming data flow with true reactive programming throughout
+**Migration Strategy**: Incremental refactor (not rewrite) maintaining test coverage
+
+### RxPY Implementation Requirements:
+- **Layer 2+**: All layers use RxPY Observable streams
+- **Single Engine Instances**: One engine per signal type (not per-market)
+- **Reactive Operators**: map(), filter(), scan(), combine_latest(), merge(), throttle()
+- **Stream Composition**: Each layer adds operators to the unified data stream
+- **Sub-second Latency**: End-to-end streaming performance target
 
 ## Role Definition
 **I AM THE PROJECT OWNER AND DEVELOPER. USER IS THE SUPERVISOR.**
@@ -54,11 +66,12 @@ Each layer must deliver:
 ## CRITICAL: Development Approach Selection
 **CHOOSE CORRECT APPROACH BASED ON COMPONENT TYPE:**
 
-### Core Business Logic (STRICT TDD-First):
-- **Signal engines, risk calculators, data processors, continuous scoring algorithms**
+### Core Business Logic (STRICT TDD-First + RxPY):
+- **Reactive signal engines, RxPY operators, streaming data processors, Observable-based scoring algorithms**
 - **STRICT Test-Driven Development - NO EXCEPTIONS**
-- **Performance-critical algorithms requiring <25ms latency**
-- **Layer 4: Single-market continuous signal scoring (0-100) only - NO discrete signals**
+- **RxPY Observable streams with <25ms latency performance requirements**
+- **Layer 4: Single-instance reactive signal engines with Observable<SignalScore> streams - NO discrete signals**
+- **Observable Testing**: Use RxPY TestScheduler and marble testing for stream validation**
 
 **STRICT TDD RULES:**
 - Write ONLY ONE test function at a time
@@ -80,25 +93,26 @@ Each layer must deliver:
 ### Layer Development Sequence:
 ```
 1. STRICT TDD Core Logic → ONE test, RUN TEST (RED), minimal code, RUN TEST (GREEN), minimal refactor, RUN TEST (GREEN), REPEAT
-   - Layer 4: Continuous signal scoring algorithms (0-100 only)
-   - Single-market signal engines with NO discrete signal generation
-   - ALL signal engines share ONE WebSocket connection (CRITICAL)
-   - Performance-critical calculations
+   - Layer 4: Reactive signal scoring with Observable<SignalScore> streams (0-100 only)
+   - Single-instance signal engines with RxPY operators (scan, combine_latest, etc.)
+   - ALL signal engines subscribe to shared Observable<MarketData> stream (CRITICAL)
+   - Performance-critical reactive calculations with TestScheduler validation
    - RULE: Write ONE test function → RUN TEST → minimal code → RUN TEST → refactor → RUN TEST → repeat
-2. Integration Tests → Cross-layer functionality ONLY after unit tests complete
-   - Signal engine + market data integration
-   - Multi-layer data flow validation
-   - Single connection validation across multiple engines
+2. Integration Tests → Cross-layer RxPY stream functionality ONLY after unit tests complete
+   - Observable stream integration across layers
+   - Multi-layer reactive data flow validation  
+   - Single Observable subscription validation across multiple engines
 3. Rich Panel (Panel-First) → E2E Tests ONLY after core logic complete
-   - Continuous signal score visualization panels
-   - Real-time streaming data displays
+   - Reactive signal score visualization panels with Observable data binding
+   - Real-time streaming data displays with RxPY integration
 4. Coverage Report → Layer completion proof
 ```
 
 ## Tech Stack (MANDATORY)
 - **Language**: Python 3.11+
+- **Reactive Programming**: RxPY (reactivex) - PRIMARY requirement for Layer 2+
 - **Client**: dydx-v4-client (IndexerSocket, IndexerClient, NodeClient, Wallet)
-- **Testing**: pytest + 95% coverage requirement + Rich Console.capture() for dashboard E2E
+- **Testing**: pytest + 95% coverage requirement + RxPY TestScheduler + Rich Console.capture() for dashboard E2E
 - **UI**: Rich library (terminal) with comprehensive E2E testing capabilities
 
 ## Protocol-First Philosophy
@@ -122,22 +136,54 @@ Each layer must deliver:
 - Latency: <25ms liquidation risk assessment
 - Coverage: 95%+ minimum per layer
 
-## CRITICAL ASYNC PATTERNS
+## CRITICAL RXPY + ASYNC PATTERNS
+
+### RxPY Testing Requirements (ESSENTIAL):
+- **Use TestScheduler for time-based stream testing**
+- **Marble testing for Observable stream validation**
+- **Mock data sources for predictable stream behavior**
+
+```python
+# Required pattern for RxPY stream testing:
+def test_signal_observable_stream():
+    scheduler = TestScheduler()
+    source = scheduler.create_hot_observable(
+        on_next(100, market_data_1),
+        on_next(200, market_data_2)
+    )
+    
+    result = scheduler.start(lambda: 
+        source.pipe(
+            signal_engine.calculate_momentum_score()
+        )
+    )
+    
+    expected = [
+        on_next(100, signal_score_1),
+        on_next(200, signal_score_2)
+    ]
+    assert result.messages == expected
+```
 
 ### Prevent Pytest Hanging (ESSENTIAL):
 - **NEVER use async fixtures with background tasks**
 - **ALWAYS use try/finally for async cleanup**
 - **ALWAYS implement proper shutdown methods**
+- **ALWAYS dispose RxPY subscriptions in finally blocks**
 
 ```python
-# Required pattern for async E2E tests:
+# Required pattern for async + RxPY E2E tests:
 @pytest.mark.asyncio
-async def test_async_functionality():
-    obj = AsyncClass()
+async def test_async_rxpy_functionality():
+    obj = AsyncRxPYClass()
+    subscription = None
     try:
         await obj.initialize()
+        subscription = obj.get_observable().subscribe(observer)
         # Test logic
     finally:
+        if subscription:
+            subscription.dispose()  # CRITICAL: dispose RxPY subscription
         await obj.shutdown()  # GUARANTEED cleanup
 ```
 

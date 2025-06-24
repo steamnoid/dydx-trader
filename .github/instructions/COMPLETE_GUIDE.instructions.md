@@ -45,17 +45,17 @@ Each layer must deliver:
 **Protocol-First**: Use official dydx-v4-client exclusively. Build abstractions only when protocol requires it.
 
 ## Tech Stack (MANDATORY)
-- Python 3.11+ with dydx-v4-client package
-- WebSocket: IndexerSocket | REST: IndexerClient | Blockchain: NodeClient
+- Python 3.11+ with **RxPY (reactivex)** for reactive programming (PRIMARY requirement Layer 2+)
+- **dydx-v4-client package**: WebSocket: IndexerSocket | REST: IndexerClient | Blockchain: NodeClient
 - Auth: Wallet + KeyPair classes | UI: **Rich library only** (terminal)
-- Tests: pytest + **Rich Console.capture() for dashboard E2E testing**
+- Tests: pytest + **RxPY TestScheduler + Marble Testing** + **Rich Console.capture() for dashboard E2E testing**
 
-## Layer Development (95% Coverage Required Each)
+## Layer Development (95% Coverage Required Each) - RxPY REACTIVE ARCHITECTURE
 ```
-🔧 LAYER 2: Client Integration (START HERE)
-📊 LAYER 3: Data Processing  
-⚡ LAYER 4: Continuous Signal Scoring Only
-🧠 LAYER 5: Multi-Market Sniper Strategies
+🔧 LAYER 2: RxPY Client Integration (Observable<MarketData> streams)
+📊 LAYER 3: Reactive Data Processing (Observable<ProcessedData>)
+⚡ LAYER 4: Streaming Signal Scoring (Observable<SignalScores>) 
+🧠 LAYER 5: Reactive Multi-Market Strategies (Observable<StrategyDecisions>)
 🛡️ LAYER 6: Risk Management (liquidation prevention)
 📋 LAYER 7: Paper Trading (perpetual simulation)
 🖥️ LAYER 8: Terminal Dashboard
@@ -75,23 +75,25 @@ Each layer must deliver:
 - **Liquidation Prevention**: #1 priority in all development
 - **Real-time Data**: WebSocket-first, REST secondary
 
-## Signal vs Strategy Architecture
-### Layer 4 (Signals): Multiple Signal Types per Market
-- **Multiple Continuous Signal Types**: Each market provides momentum, volume, volatility, orderbook signals (each 0-100)
-- **NO Discrete Signals**: Layer 4 provides ONLY continuous scoring, no buy/sell/hold signals
-- **Single-Market Focus**: Each signal engine handles one market independently, outputs multiple signal types
-- **Single WebSocket Connection**: ALL signal engines share ONE WebSocket connection via ConnectionManager (CRITICAL)
-- **High-Frequency Updates**: All signal types update with every market data tick
+## Reactive Signal vs Strategy Architecture (RxPY)
+### Layer 4 (Signals): Observable<SignalScore> Streams
+- **Single Signal Engine per Signal Type**: One momentum Observable, one volume Observable, etc. (not per-market)
+- **Reactive Continuous Signals**: Observable<SignalScore> streams using RxPY operators (scan, map, combine_latest)
+- **Multi-Market Processing**: Single engine instance processes all markets via shared Observable<MarketData> stream
+- **NO Discrete Signals**: Layer 4 provides ONLY Observable<SignalScore> streams (0-100), no buy/sell/hold signals
+- **RxPY Operators**: Uses window(), scan(), combine_latest() for real-time reactive signal calculations
+- **Shared Observable**: ALL signal engines subscribe to same Observable<MarketData> stream (CRITICAL: single source)
+- **High-Frequency Updates**: Signal score Observables emit with every market data tick using reactive operators
 - **No Cross-Market Logic**: Focuses purely on single-market signal quality across multiple dimensions
-- **Rich Scoring Interface**: Provides multiple signal scores per market to Layer 5+
+- **Rich Streaming Interface**: Provides multiple Observable<SignalScore> streams per market to Layer 5+
 
-### Layer 5+ (Strategies): Multi-Market Sniper Logic
-- **Multi-Market Decision Making**: Compares multiple signal types (momentum, volume, volatility, orderbook) across multiple markets
-- **Cross-Market Portfolio Logic**: Allocation, prioritization, position management using rich signal data
-- **Sniper Strategy Engine**: Orchestrates multiple signal types from multiple Layer 4 engines (all sharing ONE WebSocket)
-- **Strategic Decisions**: When/where/how much to deploy capital using multiple signal type comparisons
-- **Market Selection**: Chooses best opportunities from multiple signal types across markets
-- **Signal Processing**: Uses multiple continuous signal types for sophisticated comparison and execution timing
+### Layer 5+ (Strategies): Observable<StrategyDecision> Streams  
+- **Multi-Market Reactive Logic**: Combines multiple Observable<SignalScore> streams across markets using combine_latest(), merge()
+- **Cross-Market Decision Streams**: Observable<StrategyDecision> using reactive portfolio allocation operators
+- **Reactive Strategy Engine**: Orchestrates multiple signal Observable streams using throttle(), debounce(), distinct_until_changed()
+- **Strategic Decisions**: When/where/how much to deploy capital using reactive operators on multiple signal streams
+- **Market Selection**: Chooses best opportunities using reactive operators on multiple Observable<SignalScore> streams
+- **Signal Processing**: Uses combine_latest(), map(), filter() on multiple continuous signal Observable streams
 
 ## Performance Targets
 - Memory: <512MB | CPU: <25% | Liquidation calc: <25ms | Coverage: 95%+
@@ -121,32 +123,23 @@ src/dydx_bot/
 
 ### **CRITICAL: Choose Correct Approach Based on Component Type**
 
-### **For Core Business Logic (Engine, Types, Algorithms)**:
-**USE STRICT TDD - NO EXCEPTIONS:**
-1. **WRITE ONE TEST FUNCTION ONLY** - Single failing test case
+### **For Core Business Logic (RxPY Reactive Engines, Types, Algorithms)**:
+**USE STRICT TDD + RxPY TESTING - NO EXCEPTIONS:**
+1. **WRITE ONE TEST FUNCTION ONLY** - Single failing test case using RxPY TestScheduler
 2. **RUN TEST** - Verify it FAILS (RED phase) 
-3. **WRITE MINIMAL PRODUCTION CODE** - Only enough to pass the one test
+3. **WRITE MINIMAL PRODUCTION CODE** - Only enough RxPY Observable/operators to pass the one test
 4. **RUN TEST** - Verify it PASSES (GREEN phase)
-5. **MINIMAL REFACTOR ONLY** - Clean only what's necessary
+5. **MINIMAL REFACTOR ONLY** - Clean only what's necessary in RxPY streams
 6. **RUN TEST** - Verify it still PASSES after refactor
 7. **REPEAT** - Write next single test, run test, minimal code, run test, minimal refactor, run test
 
-**WHEN TO RUN TESTS:**
-- **IMMEDIATELY after writing each test** - Must see RED (failing)
-- **IMMEDIATELY after writing production code** - Must see GREEN (passing)  
-- **IMMEDIATELY after any refactor** - Must stay GREEN (passing)
-- **NO CODE without running the test right away**
+**RxPY TESTING REQUIREMENTS:**
+- **Use TestScheduler for time-based Observable testing**
+- **Marble testing for Observable stream validation**
+- **Mock Observable sources for predictable stream behavior**
+- **Test reactive operators: map(), scan(), combine_latest(), etc.**
 
-**STRICT RULES:**
-- Write ONLY ONE test function at a time
-- RUN TEST after every single change
-- Write ONLY enough production code to pass that ONE test
-- NO creating multiple files at once
-- NO writing extensive production code before tests
-- NO creating "comprehensive" implementations
-- MUST follow Red→Green→Refactor cycle with test runs for every single function
-
-**Components**: SignalEngine, RiskCalculator, StrategyEngine, OrderExecutor, etc.
+**Components**: ReactiveSignalEngine, StreamingRiskCalculator, ObservableStrategyEngine, etc.
 
 ### **For Rich UI Panels (Display Components)**:
 **USE PANEL-FIRST DEVELOPMENT:**

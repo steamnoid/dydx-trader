@@ -307,3 +307,56 @@ class TestStrategyEngine:
         assert result.action == "HOLD"
         assert result.confidence == 0.5
         assert result.market == "BTC-USD"  # Should still use the best_market value
+    
+    def test_analyze_all_markets_fetches_and_processes_complete_market_universe(self):
+        """
+        ELEVENTH TEST: Test Layer 5 can analyze ALL markets from dYdX API for multi-market strategy decisions.
+        Following STRICT TDD: This test should FAIL first (RED phase)
+        
+        Layer 5 Architecture Requirements:
+        - Fetch ALL available markets from dYdX (200+ markets like Layer 4)
+        - Get signal scores for ALL markets from Layer 4 engines
+        - Apply multi-market strategy logic to select BEST opportunities
+        - Calculate portfolio allocation across ALL viable markets
+        - Return comprehensive strategy decisions for the full market universe
+        """
+        engine = StrategyEngine()
+        
+        # Test that engine can analyze all markets (this should fail initially)
+        all_market_decisions = engine.analyze_all_markets()
+        
+        # Should return strategy decisions for ALL markets (200+)
+        assert isinstance(all_market_decisions, dict)
+        assert len(all_market_decisions) >= 50  # At least 50+ major markets
+        
+        # Should include major crypto markets
+        major_markets = ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD", "MATIC-USD"]
+        for market in major_markets:
+            assert market in all_market_decisions
+            decision = all_market_decisions[market]
+            assert isinstance(decision, StrategyDecision)
+            assert decision.action in ["BUY", "SELL", "HOLD"]
+            assert 0.0 <= decision.confidence <= 1.0
+        
+        # Should have portfolio allocation recommendations  
+        assert "portfolio_allocation" in all_market_decisions
+        portfolio = all_market_decisions["portfolio_allocation"]
+        assert isinstance(portfolio, dict)
+        assert len(portfolio) >= 3  # Should allocate to at least top 3 markets
+        
+        # Portfolio allocation should sum to reasonable percentage
+        total_allocation = sum(portfolio.values())
+        assert 50.0 <= total_allocation <= 100.0  # 50-100% allocation is reasonable
+        
+        # Should rank markets by strategy opportunity
+        assert "market_ranking" in all_market_decisions
+        ranking = all_market_decisions["market_ranking"]
+        assert isinstance(ranking, list)
+        assert len(ranking) >= 10  # Should rank at least top 10 markets
+        
+        # Each ranked market should have strategy scores
+        for rank_entry in ranking[:5]:  # Check top 5
+            assert "market" in rank_entry
+            assert "strategy_score" in rank_entry
+            assert "allocation_percentage" in rank_entry
+            assert 0.0 <= rank_entry["strategy_score"] <= 100.0

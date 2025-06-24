@@ -264,3 +264,301 @@ class TestLayer5MultiMarketDashboardRealE2E:
             # Cleanup (following proper async pattern)
             if hasattr(dashboard, 'shutdown'):
                 await dashboard.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_dashboard_fetches_and_displays_live_dydx_data(
+        self,
+        real_connection_client,
+        real_data_processor,
+        real_signal_manager,
+        real_strategy_engine
+    ):
+        """
+        TDD Test 6: Dashboard fetches and displays LIVE dYdX market data
+        
+        EXPECTATION: Dashboard makes actual API calls to dYdX to fetch live market data
+        VALIDATION: Rich console output contains real BTC-USD price, volume, and market data from dYdX API
+        TIMING: Test should take 2+ seconds due to real network calls to dYdX API
+        """
+        # Create dashboard with real stack
+        dashboard = Layer5MultiMarketDashboard(
+            connection_client=real_connection_client,
+            data_processor=real_data_processor,
+            signal_manager=real_signal_manager,
+            strategy_engine=real_strategy_engine
+        )
+        
+        try:
+            # Time the operation to validate it's making real network calls
+            start_time = time.time()
+            
+            # Dashboard should fetch and display LIVE dYdX data
+            with dashboard.console.capture() as capture:
+                await dashboard.render_live_market_data()
+            
+            elapsed_time = time.time() - start_time
+            rich_output = capture.get()
+            
+            # Validate we're making real network calls (should take time)
+            assert elapsed_time >= 1.0, f"Operation too fast ({elapsed_time:.2f}s) - likely not using real API"
+            
+            # Validate real dYdX market data is present
+            assert "BTC-USD" in rich_output, "BTC-USD market missing from output"
+            assert "$" in rich_output, "Dollar price formatting missing - no real prices"
+            assert any(char.isdigit() for char in rich_output), "No numeric data - missing real market values"
+            
+            # Validate specific dYdX data fields are present
+            market_data_indicators = ["Price", "Volume", "24H", "Change"]
+            found_indicators = [indicator for indicator in market_data_indicators if indicator in rich_output]
+            assert len(found_indicators) >= 2, f"Missing real market data indicators. Found: {found_indicators}"
+            
+            # Should contain at least 100 characters of real data
+            assert len(rich_output.strip()) > 100, "Output too short - likely static/minimal data"
+            
+        finally:
+            # Cleanup (following proper async pattern)
+            if hasattr(dashboard, 'shutdown'):
+                await dashboard.shutdown()
+
+            # Cleanup (following proper async pattern)
+            if hasattr(dashboard, 'shutdown'):
+                await dashboard.shutdown()
+
+    async def test_dashboard_displays_multi_market_portfolio_allocation(
+        self,
+        real_connection_client,
+        real_data_processor,
+        real_signal_manager,
+        real_strategy_engine
+    ):
+        """
+        TDD Test 7: Dashboard calculates and displays multi-market portfolio allocation
+        
+        EXPECTATION: Dashboard uses strategy engine to calculate optimal portfolio allocation across multiple markets
+        VALIDATION: Rich console output shows allocation percentages for BTC-USD, ETH-USD, SOL-USD with real data
+        REQUIREMENT: Must show actual allocation logic based on real signal strength and market conditions
+        """
+        # Create dashboard with real stack
+        dashboard = Layer5MultiMarketDashboard(
+            connection_client=real_connection_client,
+            data_processor=real_data_processor,
+            signal_manager=real_signal_manager,
+            strategy_engine=real_strategy_engine
+        )
+        
+        try:
+            # Dashboard should calculate and display portfolio allocation
+            with dashboard.console.capture() as capture:
+                await dashboard.render_portfolio_allocation()
+            
+            rich_output = capture.get()
+            
+            # Validate portfolio allocation display
+            assert "Portfolio" in rich_output, "Portfolio section missing"
+            assert "Allocation" in rich_output, "Allocation section missing"
+            assert "%" in rich_output, "Percentage symbols missing - no allocation data"
+            
+            # Validate multiple markets are included
+            markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+            found_markets = [market for market in markets if market in rich_output]
+            assert len(found_markets) >= 2, f"Missing multi-market allocation. Found: {found_markets}"
+            
+            # Validate allocation percentages are present (should add up logically)
+            percentage_matches = [char for char in rich_output if char.isdigit()]
+            assert len(percentage_matches) >= 3, "Missing allocation percentage data"
+            
+            # Should contain substantial allocation information
+            assert len(rich_output.strip()) > 80, "Output too short - missing allocation details"
+            
+        finally:
+            # Cleanup (following proper async pattern)
+            if hasattr(dashboard, 'shutdown'):
+                await dashboard.shutdown()
+
+    async def test_dashboard_performs_cross_market_signal_comparison(
+        self,
+        real_connection_client,
+        real_data_processor,
+        real_signal_manager,
+        real_strategy_engine
+    ):
+        """
+        TDD Test 8: Dashboard performs cross-market signal comparison for sniper strategy
+        
+        EXPECTATION: Dashboard compares signal strength across multiple markets and identifies best opportunities
+        VALIDATION: Rich console output shows signal comparison table with BTC-USD, ETH-USD, SOL-USD ranking
+        REQUIREMENT: Must show which market has strongest signals for multi-market sniper targeting
+        """
+        # Create dashboard with real stack
+        dashboard = Layer5MultiMarketDashboard(
+            connection_client=real_connection_client,
+            data_processor=real_data_processor,
+            signal_manager=real_signal_manager,
+            strategy_engine=real_strategy_engine
+        )
+        
+        try:
+            # Dashboard should perform cross-market signal comparison
+            with dashboard.console.capture() as capture:
+                await dashboard.render_cross_market_comparison()
+            
+            rich_output = capture.get()
+            
+            # Validate cross-market comparison display
+            assert "Cross-Market" in rich_output, "Cross-market section missing"
+            assert "Comparison" in rich_output or "Ranking" in rich_output, "Comparison analysis missing"
+            assert "Signal" in rich_output and ("Strength" in rich_output or "Streng" in rich_output), "Signal strength comparison missing"
+            
+            # Validate multiple markets are compared
+            markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+            found_markets = [market for market in markets if market in rich_output]
+            assert len(found_markets) >= 3, f"Missing full market comparison. Found: {found_markets}"
+            
+            # Validate ranking/scoring is present
+            ranking_indicators = ["#1", "#2", "#3", "Rank", "Best", "Score"]
+            found_indicators = [indicator for indicator in ranking_indicators if indicator in rich_output]
+            assert len(found_indicators) >= 2, f"Missing ranking indicators. Found: {found_indicators}"
+            
+            # Validate signal scores are shown (0-100 range)
+            score_matches = [char for char in rich_output if char.isdigit()]
+            assert len(score_matches) >= 6, "Missing signal score data for comparison"
+            
+            # Should contain substantial comparison analysis
+            assert len(rich_output.strip()) > 120, "Output too short - missing comparison analysis"
+            
+        finally:
+            # Cleanup (following proper async pattern)
+            if hasattr(dashboard, 'shutdown'):
+                await dashboard.shutdown()
+
+    async def test_dashboard_calculates_position_sizing_from_signals(
+        self,
+        real_connection_client,
+        real_data_processor,
+        real_signal_manager,
+        real_strategy_engine
+    ):
+        """
+        TDD Test 9: Dashboard calculates optimal position sizing based on signal strength
+        
+        EXPECTATION: Dashboard calculates position sizes based on signal confidence and risk parameters
+        VALIDATION: Rich console output shows position sizing table with risk-adjusted amounts
+        REQUIREMENT: Must show actual USD amounts and percentage allocations based on signal strength
+        """
+        # Create dashboard with real stack
+        dashboard = Layer5MultiMarketDashboard(
+            connection_client=real_connection_client,
+            data_processor=real_data_processor,
+            signal_manager=real_signal_manager,
+            strategy_engine=real_strategy_engine
+        )
+        
+        try:
+            # Dashboard should calculate position sizing based on signals
+            with dashboard.console.capture() as capture:
+                await dashboard.render_position_sizing(portfolio_value=100000.0)  # $100k portfolio
+            
+            rich_output = capture.get()
+            
+            # Validate position sizing display
+            assert "Position" in rich_output, "Position sizing section missing"
+            assert "Size" in rich_output or "Amount" in rich_output, "Position amounts missing"
+            assert "$" in rich_output, "Dollar amounts missing"
+            
+            # Validate risk-based calculations
+            risk_indicators = ["Risk", "Max", "Stop", "Size"]
+            found_risk = [indicator for indicator in risk_indicators if indicator in rich_output]
+            assert len(found_risk) >= 2, f"Missing risk-based sizing. Found: {found_risk}"
+            
+            # Validate multiple markets have position sizes
+            markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+            found_markets = [market for market in markets if market in rich_output]
+            assert len(found_markets) >= 3, f"Missing multi-market positions. Found: {found_markets}"
+            
+            # Validate numeric position data
+            amount_matches = [char for char in rich_output if char in "0123456789,.$"]
+            assert len(amount_matches) >= 20, "Missing position amount calculations"
+            
+            # Should contain comprehensive sizing analysis
+            assert len(rich_output.strip()) > 150, "Output too short - missing position sizing details"
+            
+        finally:
+            # Cleanup (following proper async pattern)
+            if hasattr(dashboard, 'shutdown'):
+                await dashboard.shutdown()
+
+    async def test_complete_layer5_multi_market_dashboard_integration(
+        self,
+        real_connection_client,
+        real_data_processor,
+        real_signal_manager,
+        real_strategy_engine
+    ):
+        """
+        TDD Test 10: Complete Layer 5 Multi-Market Dashboard Integration Test
+        
+        EXPECTATION: Dashboard integrates all Layer 5 capabilities in a comprehensive multi-market display
+        VALIDATION: Rich console shows live data, signals, allocation, comparison, and position sizing
+        REQUIREMENT: Must demonstrate complete Layer 5 sniper strategy functionality working together
+        """
+        # Create dashboard with real stack
+        dashboard = Layer5MultiMarketDashboard(
+            connection_client=real_connection_client,
+            data_processor=real_data_processor,
+            signal_manager=real_signal_manager,
+            strategy_engine=real_strategy_engine
+        )
+        
+        try:
+            # Test complete dashboard integration
+            with dashboard.console.capture() as capture:
+                dashboard.console.print("[bold cyan]🎯 LAYER 5 MULTI-MARKET SNIPER DASHBOARD[/bold cyan]\n")
+                
+                # Render all Layer 5 capabilities
+                await dashboard.render_live_market_data()
+                dashboard.console.print("\n")
+                
+                await dashboard.render_cross_market_comparison()
+                dashboard.console.print("\n")
+                
+                await dashboard.render_portfolio_allocation()
+                dashboard.console.print("\n")
+                
+                await dashboard.render_position_sizing(portfolio_value=100000.0)
+            
+            rich_output = capture.get()
+            
+            # Validate comprehensive Layer 5 functionality
+            layer5_features = [
+                "Cross-Market",  # Cross-market comparison
+                "Portfolio Allocation",  # Portfolio allocation
+                "Position Sizing",  # Position sizing
+                "BTC-USD",  # Multi-market support
+                "ETH-USD",
+                "SOL-USD"
+            ]
+            
+            missing_features = [feature for feature in layer5_features if feature not in rich_output]
+            assert len(missing_features) == 0, f"Missing Layer 5 features: {missing_features}"
+            
+            # Validate data richness (comprehensive output)
+            assert len(rich_output.strip()) > 500, "Output too short - missing comprehensive Layer 5 integration"
+            
+            # Validate real market data integration
+            assert "$" in rich_output, "Missing real market prices"
+            assert "%" in rich_output, "Missing percentage data"
+            
+            # Validate signal integration
+            signal_indicators = ["Score", "Signal", "Rank", "#1", "#2", "#3"]
+            found_signals = [indicator for indicator in signal_indicators if indicator in rich_output]
+            assert len(found_signals) >= 4, f"Missing signal integration. Found: {found_signals}"
+            
+            # Validate multi-market coverage
+            markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+            market_count = sum(1 for market in markets if rich_output.count(market) >= 4)  # Should appear in multiple sections
+            assert market_count >= 3, f"Insufficient multi-market coverage. Found: {market_count} markets"
+            
+        finally:
+            # Cleanup (following proper async pattern)
+            if hasattr(dashboard, 'shutdown'):
+                await dashboard.shutdown()
