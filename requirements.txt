@@ -1,0 +1,9 @@
+# Core dependencies for methodology validation
+reactivex>=4.0.0  # RxPY for reactive streams
+requests>=2.31.0  # HTTP client for dYdX API
+dydx-v4-client>=2.0.0  # Official dYdX v4 client with WebSocket support
+rich>=13.0.0      # Terminal UI (for BUILD-FIRST testing)
+mitmproxy>=9.0.0  # HTTP/WebSocket proxy for recording/replay
+pytest>=7.0.0     # Testing framework for TDD
+pytest-asyncio   # Async test support
+websockets>=11.0.0  # WebSocket client for dYdX streaming

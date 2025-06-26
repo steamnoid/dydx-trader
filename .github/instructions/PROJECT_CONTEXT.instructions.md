@@ -32,12 +32,14 @@
 
 ### Architecture Layers (Stream-Based Methodology Test Cases)
 ```
-Layer 2: Real Data Streams + Recording - Tests reactive TDD with real APIs
-  - dYdX v4 OHLCV data as RxPY Observable streams
-  - Stream recording mechanism for deterministic replay
-  - Tests: Real API integration, stream isolation, record/replay
+Layer 2: Real Data Streams + Recording - ✅ COMPLETE
+  - ✅ Real API integration with mitmproxy recording
+  - ✅ Deterministic replay with server_replay_reuse=true  
+  - ✅ RecordingContext management (start/stop/replay)
+  - ✅ TDD validation: Real mitmproxy process integration
+  - Key Learning: --set server_replay_reuse=true critical for determinism
 
-Layer 3+: Replayed Stream Processing - Tests deterministic stream testing
+Layer 3+: Replayed Stream Processing - READY FOR IMPLEMENTATION
   - All higher layers use ONLY replayed streams as input
   - No direct API calls above Layer 2
   - Tests: Stream-based assertions, deterministic behavior

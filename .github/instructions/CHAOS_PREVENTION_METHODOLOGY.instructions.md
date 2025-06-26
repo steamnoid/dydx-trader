@@ -239,3 +239,33 @@ Before adding ANY new function, ask:
 - [ ] Does it handle basic errors?
 
 **If any answer is NO, complete current function first.**
+
+## MITMPROXY REPLAY DEBUGGING LESSONS
+
+### Problem: Proxy Works for First Request, Then Fails
+**Symptom**: First request succeeds, subsequent requests get "Connection refused" or "Connection reset"
+**Root Cause**: mitmproxy replay mode serves each recorded response only once by default
+**Solution**: Add `--set server_replay_reuse=true` to allow responses to be served multiple times
+
+### Debugging Process Used
+1. **Isolated**: Created standalone test to reproduce issue outside test framework
+2. **Identified**: Found that proxy shuts down after first request
+3. **Researched**: Checked mitmproxy options for replay persistence  
+4. **Fixed**: Added specific configuration flags for deterministic replay
+5. **Verified**: Confirmed same UUID returned for multiple requests (deterministic)
+
+### Key Configuration for Deterministic Replay
+```bash
+mitmdump \
+  --server-replay recordings/traffic.mitm \
+  --set server_replay_use_headers=false \
+  --set server_replay_kill_extra=false \
+  --set server_replay_reuse=true \
+  --set connection_strategy=lazy
+```
+
+### Verification Method
+- Record request to endpoint that returns unique value each time (e.g., UUID)
+- Replay same request multiple times
+- Verify all responses contain identical value from recording
+- If different values returned, replay is not working (making live requests)
