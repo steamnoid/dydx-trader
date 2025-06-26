@@ -44,7 +44,33 @@
 - Need to see actual behavior to write accurate tests
 - Tests validate what actually exists, not assumptions
 
-## UNIVERSAL TESTING PATTERNS
+## STREAM-BASED TDD EXTENSIONS
+
+### Layer 2: Real API Components (TDD + Recording)
+**When to use**: API connection layers, real-time data sources
+**Characteristics**: External dependencies, real network calls, recording capability
+**Process**: TDD for connection logic + recording integration testing
+
+**Example TDD Cycle**:
+1. Test: Can create API client
+2. Code: Empty client class  
+3. Test: Can get stream from API
+4. Code: Return empty Observable
+5. Test: Can record stream data
+6. Code: Add recording mechanism
+
+### Layer 3+: Stream Processing Components (TDD + Replay)
+**When to use**: Data transformation, analysis, business logic on streams
+**Characteristics**: Stream input/output, deterministic behavior, no external calls
+**Process**: STRICT TDD with replayed streams as test data
+
+**Example TDD Cycle**:
+1. Test: Can process replayed stream
+2. Code: Return empty stream
+3. Test: Calculates correct transformation
+4. Code: Add minimal transformation logic
+5. Test: Handles edge cases in stream
+6. Code: Add error handling
 
 ### TDD Testing Requirements
 ```python
@@ -69,6 +95,38 @@ def test_ui_component_output():
     
     # Validate based on actual patterns observed
     assert expected_pattern in actual_output
+```
+
+### Stream Testing Requirements
+```python
+# Layer 2: Integration testing with recording
+def test_api_stream_integration():
+    client = ApiClient()
+    recorder = StreamRecorder("integration_test.json")
+    
+    stream = client.get_data_stream()
+    recorded_stream = recorder.record_stream(stream)
+    
+    # Test real integration
+    values = []
+    recorded_stream.take(5).subscribe(values.append)
+    
+    assert len(values) > 0
+    recorder.save_recording()
+
+# Layer 3+: Unit testing with replay
+def test_stream_transformation():
+    # Use recorded data as input
+    replayer = StreamReplayer("test_data.json")
+    input_stream = replayer.replay_stream()
+    
+    # Test transformation
+    result_stream = transform_stream(input_stream)
+    
+    # Assert on stream output
+    results = []
+    result_stream.subscribe(results.append)
+    assert len(results) == expected_count
 ```
 
 ## METHODOLOGY VALIDATION CHECKLIST

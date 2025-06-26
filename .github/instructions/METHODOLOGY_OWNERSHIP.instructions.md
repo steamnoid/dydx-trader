@@ -22,12 +22,13 @@ I am responsible for:
 **Validation**: If another team could use these instructions successfully on their project
 
 ## ITERATION TRACKING
-**Current Iteration**: #7 (starting fresh with methodology focus)
+**Current Iteration**: #8 (Stream-based methodology focus)
 **Previous Learning**: 
 - Strict TDD works for core logic
-- Panel-first works for UI components
+- Build-first works for UI components
 - Need clear separation of methodology vs. project specifics
 - Process ownership must be explicit
+- **New Goal**: Layer 2 = real API + recording; Layer 3+ = replayed streams only
 
 ## DECISION AUTHORITY
 I have authority to:

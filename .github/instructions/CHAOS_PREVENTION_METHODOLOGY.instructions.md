@@ -162,3 +162,32 @@ After making any change:
 - [ ] Did I introduce any new problems?
 - [ ] Is the codebase in a clean state?
 - [ ] Am I ready for the next single problem?
+
+## STREAM-BASED CHAOS PREVENTION
+
+### Stream Layer Isolation Rules
+- ✅ **Layer 2 ONLY**: Real API calls and recording
+- ✅ **Layer 3+ ONLY**: Replayed streams as input
+- ❌ **NEVER**: Mix real API calls in higher layers
+- ❌ **NEVER**: Test higher layers with real network calls
+
+### Stream Testing Chaos Prevention
+- ✅ **ONE STREAM** - Test one stream transformation at a time
+- ✅ **RECORDED DATA** - Use consistent replayed data for all Layer 3+ tests
+- ✅ **STREAM ASSERTIONS** - Assert on stream output, not internal state
+- ❌ **NEVER**: Mock stream data when recorded data available
+- ❌ **NEVER**: Test multiple stream transformations in one test
+
+### Recording Management Rules
+- ✅ Create dedicated recordings for each test scenario
+- ✅ Version recordings with clear naming conventions
+- ✅ Keep recordings focused and minimal
+- ❌ Never reuse complex recordings across different tests
+- ❌ Never edit source code and recordings simultaneously
+
+### Debugging Stream Problems
+1. **Isolate the Layer**: Is problem in Layer 2 (real API) or Layer 3+ (replay)?
+2. **Check Recording**: Is the recorded data what you expect?
+3. **Test Replay**: Does the replayed stream match the recording?
+4. **Validate Transform**: Is the stream transformation logic correct?
+5. **Fix One Layer**: Make changes only in the problematic layer

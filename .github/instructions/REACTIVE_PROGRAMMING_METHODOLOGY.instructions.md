@@ -1,8 +1,115 @@
-# REACTIVE PROGRAMMING METHODOLOGY - RxPY Testing Patterns
+# REACTIVE PROGRAMMING METHODOLOGY - Stream Recording & Replay
 
 ## METHODOLOGY PURPOSE
 **Universal patterns for Test-Driven Development with reactive programming**
-**Validated through: RxPY Observable streams in dYdX project**
+**Validated through: RxPY Observable streams with recording/replay in dYdX project**
+
+## STREAM-BASED TESTING ARCHITECTURE
+
+### Layer Separation for Testing
+```
+Layer 2: Real API + Recording
+├─ Purpose: Connect to real dYdX API, record stream data
+├─ Output: Recorded stream files for deterministic replay
+└─ Testing: Integration tests with real API, recording validation
+
+Layer 3+: Replayed Stream Processing  
+├─ Input: ONLY replayed streams from Layer 2 recordings
+├─ Processing: Transform, analyze, combine streams
+└─ Testing: Stream-based assertions on deterministic data
+```
+
+### Stream Recording Pattern
+```python
+# Pattern: mitmproxy-based recording for HTTP/WebSocket streams
+from mitmproxy import http, websocket
+from mitmproxy.tools.dump import DumpMaster
+from mitmproxy.options import Options
+import json
+import time
+
+class DydxRecordingProxy:
+    def __init__(self, recording_file: str):
+        self.recording_file = recording_file
+        self.recorded_data = []
+        self.options = Options(listen_port=8080, mode="regular")
+        
+    def request(self, flow: http.HTTPFlow):
+        """Record HTTP requests to dYdX API"""
+        if "dydx.exchange" in flow.request.pretty_host:
+            self.recorded_data.append({
+                "type": "http_request", 
+                "timestamp": time.time(),
+                "url": flow.request.pretty_url,
+                "method": flow.request.method,
+                "headers": dict(flow.request.headers),
+                "content": flow.request.content.decode('utf-8', errors='ignore')
+            })
+    
+    def response(self, flow: http.HTTPFlow):
+        """Record HTTP responses from dYdX API"""
+        if "dydx.exchange" in flow.request.pretty_host:
+            self.recorded_data.append({
+                "type": "http_response",
+                "timestamp": time.time(), 
+                "status_code": flow.response.status_code,
+                "headers": dict(flow.response.headers),
+                "content": flow.response.content.decode('utf-8', errors='ignore')
+            })
+    
+    def websocket_message(self, flow: websocket.WebSocketFlow):
+        """Record WebSocket messages"""
+        for message in flow.messages:
+            self.recorded_data.append({
+                "type": "websocket_message",
+                "timestamp": time.time(),
+                "from_client": message.from_client,
+                "content": message.content
+            })
+    
+    def save_recording(self):
+        with open(self.recording_file, 'w') as f:
+            json.dump(self.recorded_data, f, indent=2)
+```
+
+### Stream Replay Pattern
+```python
+# Pattern: mitmproxy-based replay serving recorded responses
+class DydxReplayProxy:
+    def __init__(self, recording_file: str):
+        with open(recording_file, 'r') as f:
+            self.recorded_data = json.load(f)
+        self.replay_index = 0
+        
+    def request(self, flow: http.HTTPFlow):
+        """Serve recorded responses for dYdX API requests"""
+        if "dydx.exchange" in flow.request.pretty_host:
+            # Find matching recorded response
+            for item in self.recorded_data[self.replay_index:]:
+                if (item["type"] == "http_response" and 
+                    self._matches_request(flow.request, item)):
+                    
+                    # Create response from recording
+                    flow.response = http.Response.make(
+                        status_code=item["status_code"],
+                        content=item["content"],
+                        headers=item["headers"]
+                    )
+                    self.replay_index += 1
+                    break
+    
+    def websocket_start(self, flow: websocket.WebSocketFlow):
+        """Replay recorded WebSocket messages"""
+        for item in self.recorded_data:
+            if item["type"] == "websocket_message":
+                # Send recorded message back to client
+                flow.inject_message(
+                    websocket.WebSocketMessage(
+                        content=item["content"],
+                        from_client=not item["from_client"]  # Flip direction
+                    )
+                )
+```
 
 ## REACTIVE PROGRAMMING CHALLENGES FOR TDD
 
@@ -272,3 +379,92 @@ def test_stream_processing_latency():
 - Scheduler implementation details
 
 This methodology should work with any reactive programming library.
+
+## STREAM-BASED TDD METHODOLOGY
+
+### Layer 2: Real API Integration Testing
+```python
+# Step 1: Test real API connection
+def test_can_connect_to_dydx_api():
+    client = DydxClient()
+    stream = client.get_ohlcv_stream("ETH-USD")
+    assert isinstance(stream, Observable)
+
+# Step 2: Test stream recording
+def test_can_record_stream_data():
+    recorder = StreamRecorder("test_recording.json")
+    client = DydxClient()
+    stream = client.get_ohlcv_stream("ETH-USD")
+    
+    recorded_stream = recorder.record_stream(stream)
+    
+    # Collect first few values
+    values = []
+    recorded_stream.take(3).subscribe(values.append)
+    
+    # Should have recorded real data
+    assert len(values) > 0
+    assert "price" in values[0]
+    
+    # Should have saved recording
+    recorder.save_recording()
+    assert os.path.exists("test_recording.json")
+```
+
+### Layer 3+: Replayed Stream Testing
+```python
+# Pattern: All higher layer tests use replayed streams
+def test_price_moving_average():
+    # Use recorded stream as input
+    replayer = StreamReplayer("recorded_ohlcv.json")
+    source_stream = replayer.replay_stream()
+    
+    # Test the moving average calculation
+    ma_stream = source_stream.pipe(
+        moving_average_operator(window=5)
+    )
+    
+    # Collect results
+    results = []
+    ma_stream.subscribe(results.append)
+    
+    # Assert on stream output
+    assert len(results) > 0
+    assert all(r["moving_average"] > 0 for r in results)
+```
+
+### Stream Integration Testing
+```python
+# Pattern: Test stream combinations with replayed data
+def test_multi_stream_processing():
+    # Load multiple recorded streams
+    price_stream = StreamReplayer("price_data.json").replay_stream()
+    volume_stream = StreamReplayer("volume_data.json").replay_stream()
+    
+    # Test stream combination
+    combined_stream = price_stream.pipe(
+        combine_latest(volume_stream),
+        map(lambda pair: calculate_vwap(pair[0], pair[1]))
+    )
+    
+    # Assert on combined results
+    results = []
+    combined_stream.subscribe(results.append)
+    assert len(results) > 0
+    assert all(r["vwap"] > 0 for r in results)
+```
+
+## DETERMINISTIC TESTING BENEFITS
+
+### Advantages of Replayed Streams
+- **Speed**: No network calls, fast test execution
+- **Reliability**: Same data every time, no flaky tests
+- **Isolation**: No external dependencies in higher layers
+- **Debugging**: Can inspect exact stream data that caused failures
+- **Edge Cases**: Can create specific scenarios by editing recordings
+
+### Recording Management Strategy
+- **Multiple Scenarios**: Record normal, high-volatility, error conditions
+- **Versioned Data**: Track recording versions for test stability
+- **Selective Replay**: Replay specific time windows or patterns
+- **Data Privacy**: Sanitize recordings if needed for sharing
