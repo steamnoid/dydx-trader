@@ -191,3 +191,51 @@ After making any change:
 3. **Test Replay**: Does the replayed stream match the recording?
 4. **Validate Transform**: Is the stream transformation logic correct?
 5. **Fix One Layer**: Make changes only in the problematic layer
+
+## TDD FUNCTION JUMPING PREVENTION
+
+### CRITICAL ANTI-PATTERN: Method Jumping
+**The most dangerous TDD violation: Adding multiple incomplete functions**
+
+#### Recognition Signs
+- Multiple empty methods added in one session
+- Testing method existence instead of functionality  
+- Moving to new functions before current one actually works
+- Integration tests before unit functionality proven
+
+#### Prevention Protocol
+1. **ONE FUNCTION RULE**: Complete current function before adding any new function
+2. **PROOF OF WORK**: Function must actually do what its name promises
+3. **REAL DATA TEST**: Must work with actual data, not just pass empty tests
+4. **ERROR HANDLING**: Must handle basic failure cases
+
+#### Example of Violation
+```python
+# ❌ WRONG: Function jumping anti-pattern
+def start_recording(): pass
+def stop_recording(): pass  
+def get_status(): pass
+# Multiple functions, none working
+```
+
+#### Example of Correct Approach  
+```python
+# ✅ CORRECT: Complete start_recording fully first
+def start_recording():
+    # Actually starts mitmproxy process
+    # Actually captures HTTP traffic
+    # Actually saves to file
+    # Returns success/failure status
+    
+# ONLY add stop_recording after start_recording is COMPLETE
+```
+
+### ENFORCEMENT CHECKPOINT
+
+Before adding ANY new function, ask:
+- [ ] Does my current function actually work?
+- [ ] Can I prove it with real data?
+- [ ] Would I trust it in production?
+- [ ] Does it handle basic errors?
+
+**If any answer is NO, complete current function first.**
