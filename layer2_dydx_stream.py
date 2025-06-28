@@ -24,8 +24,8 @@ class DydxTradesStream:
         self._unified_trades_observer = None  # Single observer for all markets
         
         # Orderbook stream support
-        self._orderbook_observer = None  # Single observer for BTC orderbook
-        self._current_orderbook = {"asks": [], "bids": []}  # Current orderbook state
+        self._orderbook_observers = {}  # Dict of market_id -> observer
+        self._current_orderbooks = {}  # Dict of market_id -> orderbook state
     
     def connect(self):
         """Connect to dYdX WebSocket API"""
@@ -108,36 +108,38 @@ class DydxTradesStream:
                     if self._unified_trades_observer:
                         self._unified_trades_observer.on_next(enriched_trade)
         elif message.get("channel") == "v4_orderbook":
+            market_id = message.get("id", "unknown")
+            
             if message.get("type") == "subscribed":
                 # Orderbook subscription confirmed - contains initial orderbook snapshot
                 if message.get("contents"):
                     orderbook_data = message.get("contents", {})
-                    # Replace current orderbook with initial snapshot
-                    self._current_orderbook = {
+                    # Replace current orderbook with initial snapshot for this market
+                    self._current_orderbooks[market_id] = {
                         "asks": orderbook_data.get("asks", []),
                         "bids": orderbook_data.get("bids", [])
                     }
-                    # Emit to observer if present
-                    if self._orderbook_observer:
-                        self._orderbook_observer.on_next(self._current_orderbook.copy())
+                    # Emit to observer if present for this market
+                    if market_id in self._orderbook_observers:
+                        self._orderbook_observers[market_id].on_next(self._current_orderbooks[market_id].copy())
             elif message.get("contents"):
                 # Orderbook update - apply incremental changes
                 orderbook_data = message.get("contents", {})
                 
                 try:
-                    self._apply_orderbook_update(orderbook_data)
+                    self._apply_orderbook_update(orderbook_data, market_id)
                     
-                    # Emit COMPLETE updated orderbook to observer
-                    if self._orderbook_observer:
-                        complete_orderbook = self._current_orderbook.copy()
-                        self._orderbook_observer.on_next(complete_orderbook)
+                    # Emit COMPLETE updated orderbook to observer for this market
+                    if market_id in self._orderbook_observers:
+                        complete_orderbook = self._current_orderbooks[market_id].copy()
+                        self._orderbook_observers[market_id].on_next(complete_orderbook)
                 except Exception as e:
-                    print(f"❌ Error applying orderbook update: {e}")
+                    print(f"❌ Error applying orderbook update for {market_id}: {e}")
                     import traceback
                     traceback.print_exc()
                     # In case of error, emit the raw update data to see what's happening
-                    if self._orderbook_observer:
-                        self._orderbook_observer.on_next(orderbook_data)
+                    if market_id in self._orderbook_observers:
+                        self._orderbook_observers[market_id].on_next(orderbook_data)
     
     def get_trades_observable(self, market_id: str = "BTC-USD"):
         """Get RxPY Observable stream of trades data for a specific market"""
@@ -256,17 +258,17 @@ class DydxTradesStream:
         return rx.create(create_all_trades_stream)
     
     def get_orderbook_observable(self, market_id: str = "BTC-USD"):
-        """Get RxPY Observable stream of orderbook data for BTC market"""
+        """Get RxPY Observable stream of orderbook data for specified market"""
         import reactivex as rx
         
         def create_orderbook_stream(observer, scheduler):
             """Create orderbook stream by subscribing to WebSocket orderbook channel"""
             try:
                 if self._is_connected and self._websocket:
-                    # Store observer for message handling
-                    self._orderbook_observer = observer
+                    # Store observer for message handling for this specific market
+                    self._orderbook_observers[market_id] = observer
                     
-                    # Subscribe to orderbook channel for BTC
+                    # Subscribe to orderbook channel for the specified market
                     subscription_message = {
                         "type": "subscribe",
                         "channel": "v4_orderbook",
@@ -298,15 +300,22 @@ class DydxTradesStream:
                         self._websocket.send(message_str)
                     except:
                         pass
-                    # Clear observer
-                    self._orderbook_observer = None
+                    # Clear observer for this specific market
+                    if market_id in self._orderbook_observers:
+                        del self._orderbook_observers[market_id]
             
             return dispose
         
         return rx.create(create_orderbook_stream)
     
-    def _apply_orderbook_update(self, update_data: dict):
-        """Apply incremental orderbook updates to current state"""
+    def _apply_orderbook_update(self, update_data: dict, market_id: str):
+        """Apply incremental orderbook updates to current state for specific market"""
+        # Ensure we have an orderbook for this market
+        if market_id not in self._current_orderbooks:
+            self._current_orderbooks[market_id] = {"asks": [], "bids": []}
+        
+        current_orderbook = self._current_orderbooks[market_id]
+        
         # Update asks
         if "asks" in update_data:
             for ask_update in update_data["asks"]:
@@ -321,16 +330,16 @@ class DydxTradesStream:
                     ask_entry = ask_update
                 
                 # Remove existing entry at this price
-                self._current_orderbook["asks"] = [
-                    ask for ask in self._current_orderbook["asks"] 
+                current_orderbook["asks"] = [
+                    ask for ask in current_orderbook["asks"] 
                     if ask["price"] != price
                 ]
                 
                 # Add new entry if size > 0
                 if float(size) > 0:
-                    self._current_orderbook["asks"].append(ask_entry)
+                    current_orderbook["asks"].append(ask_entry)
                     # Keep asks sorted by price (ascending)
-                    self._current_orderbook["asks"].sort(key=lambda x: float(x["price"]))
+                    current_orderbook["asks"].sort(key=lambda x: float(x["price"]))
         
         # Update bids
         if "bids" in update_data:
@@ -346,16 +355,16 @@ class DydxTradesStream:
                     bid_entry = bid_update
                 
                 # Remove existing entry at this price
-                self._current_orderbook["bids"] = [
-                    bid for bid in self._current_orderbook["bids"] 
+                current_orderbook["bids"] = [
+                    bid for bid in current_orderbook["bids"] 
                     if bid["price"] != price
                 ]
                 
                 # Add new entry if size > 0
                 if float(size) > 0:
-                    self._current_orderbook["bids"].append(bid_entry)
+                    current_orderbook["bids"].append(bid_entry)
                     # Keep bids sorted by price (descending)
-                    self._current_orderbook["bids"].sort(key=lambda x: float(x["price"]), reverse=True)
+                    current_orderbook["bids"].sort(key=lambda x: float(x["price"]), reverse=True)
 
     def is_connected(self):
         """Check if WebSocket connection is active"""
