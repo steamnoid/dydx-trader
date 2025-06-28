@@ -382,7 +382,7 @@ class TestDydxTradesStream:
         wait_time = 0
         
         markets_with_initial = set()
-        markets_with_realtime = set()
+        markets_with_realtime = set();
         
         while len(errors) == 0:
             time.sleep(0.5)
@@ -492,3 +492,664 @@ class TestDydxTradesStream:
         
         assert total_initial_trades > 0, "Should have received initial trades from subscription confirmations"
         assert total_realtime_trades > 0, "Should have received real-time trades proving live data stream"
+
+
+class TestLayer2SafetyNet:
+    """Comprehensive safety net tests for Layer 2 before moving to Layer 3+"""
+    
+    def test_layer2_readiness_all_core_functions(self):
+        """Validate that all core Layer 2 functions are working properly"""
+        # Arrange: Create stream instance
+        stream = DydxTradesStream()
+        
+        # Act & Assert: Test all core functions exist and work
+        # 1. Can create stream
+        assert stream is not None
+        
+        # 2. Can connect to WebSocket
+        connect_result = stream.connect()
+        assert connect_result is True
+        assert stream.is_connected() is True
+        
+        # 3. Can get connection ID
+        connection_id = stream.get_connection_id()
+        assert connection_id is not None
+        assert len(connection_id) > 0
+        
+        # 4. Can create observables
+        trades_obs = stream.get_trades_observable()
+        orderbook_obs = stream.get_orderbook_observable("BTC-USD")
+        
+        from reactivex import Observable
+        assert isinstance(trades_obs, Observable)
+        assert isinstance(orderbook_obs, Observable)
+        
+        # 5. Can get subscription status
+        assert hasattr(stream, 'get_subscribed_markets')
+        subscriptions = stream.get_subscribed_markets()
+        assert isinstance(subscriptions, (list, dict, set))
+        
+        print("✅ All core Layer 2 functions working properly")
+    
+    def test_layer2_data_quality_validation(self):
+        """Validate the quality and structure of data coming from Layer 2"""
+        # Arrange: Setup stream and data capture
+        stream = DydxTradesStream()
+        stream.connect()
+        
+        trades_data = []
+        orderbook_data = []
+        
+        # Subscribe to both trades and orderbook
+        trades_obs = stream.get_trades_observable()
+        orderbook_obs = stream.get_orderbook_observable("BTC-USD")
+        
+        trades_sub = trades_obs.subscribe(lambda x: trades_data.append(x))
+        orderbook_sub = orderbook_obs.subscribe(lambda x: orderbook_data.append(x))
+        
+        # Act: Wait for data
+        time.sleep(10)  # Wait for sufficient data
+        
+        # Assert: Validate data quality
+        assert len(trades_data) > 0, "Should receive trade data"
+        assert len(orderbook_data) > 0, "Should receive orderbook data"
+        
+        # Validate trade data structure
+        trade = trades_data[0]
+        required_trade_fields = ['price', 'size', 'side']
+        for field in required_trade_fields:
+            assert field in trade, f"Trade should have {field} field"
+        
+        # Validate metadata contains market information
+        assert 'metadata' in trade, "Trade should have metadata"
+        assert 'market_name' in trade['metadata'], "Trade metadata should have market_name"
+        
+        # Validate orderbook data structure
+        orderbook = orderbook_data[0]
+        assert 'bids' in orderbook, "Orderbook should have bids"
+        assert 'asks' in orderbook, "Orderbook should have asks"
+        assert len(orderbook['bids']) > 0, "Should have bid prices"
+        assert len(orderbook['asks']) > 0, "Should have ask prices"
+        
+        # Cleanup
+        trades_sub.dispose()
+        orderbook_sub.dispose()
+        
+        print("✅ Layer 2 data quality validation passed")
+    
+    def test_layer2_performance_baseline(self):
+        """Establish performance baseline for Layer 2 before Layer 3+ development"""
+        # Arrange: Setup performance monitoring
+        stream = DydxTradesStream()
+        stream.connect()
+        
+        start_time = time.time()
+        data_count = 0
+        
+        def count_data(data):
+            nonlocal data_count
+            data_count += 1
+        
+        # Act: Monitor performance for a fixed period
+        observable = stream.get_trades_observable()
+        subscription = observable.subscribe(count_data)
+        
+        # Wait for 30 seconds to establish baseline
+        time.sleep(30)
+        end_time = time.time()
+        
+        # Cleanup
+        subscription.dispose()
+        
+        # Assert: Performance should meet minimum thresholds
+        duration = end_time - start_time
+        data_rate = data_count / duration
+        
+        print(f"📊 Layer 2 Performance Baseline:")
+        print(f"  - Duration: {duration:.1f}s")
+        print(f"  - Messages received: {data_count}")
+        print(f"  - Rate: {data_rate:.2f} messages/second")
+        
+        # Minimum performance thresholds for Layer 2
+        assert data_rate > 0.1, f"Data rate too low: {data_rate:.2f} msg/s"
+        assert data_count > 0, "Should receive some data"
+        
+        print("✅ Layer 2 performance baseline established")
+    
+    def test_layer2_error_handling_resilience(self):
+        """Test Layer 2 error handling and resilience patterns"""
+        # Arrange: Create stream for error testing
+        stream = DydxTradesStream()
+        
+        # Test 1: Connection resilience
+        connect_result = stream.connect()
+        assert connect_result is True
+        
+        # Test 2: Invalid market handling
+        try:
+            invalid_obs = stream.get_orderbook_observable("INVALID-MARKET")
+            # Should not crash, should handle gracefully
+            assert invalid_obs is not None
+        except Exception as e:
+            # If it throws exception, it should be a reasonable one
+            assert "invalid" in str(e).lower() or "market" in str(e).lower()
+        
+        # Test 3: Multiple subscription handling
+        obs1 = stream.get_trades_observable()
+        obs2 = stream.get_trades_observable()
+        assert obs1 is not None
+        assert obs2 is not None
+        
+        print("✅ Layer 2 error handling resilience validated")
+    
+    def test_layer2_subscription_management(self):
+        """Test Layer 2 subscription management for multiple markets"""
+        # Arrange: Create stream and test markets
+        stream = DydxTradesStream()
+        stream.connect()
+        
+        test_markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+        subscriptions = []
+        market_data = {market: [] for market in test_markets}
+        
+        # Act: Subscribe to multiple markets
+        for market in test_markets:
+            obs = stream.get_orderbook_observable(market)
+            sub = obs.subscribe(lambda data, m=market: market_data[m].append(data))
+            subscriptions.append(sub)
+        
+        # Wait for data from multiple markets
+        time.sleep(15)
+        
+        # Assert: Should receive data from multiple markets
+        markets_with_data = [m for m in test_markets if len(market_data[m]) > 0]
+        print(f"📊 Multi-market subscription results:")
+        for market in test_markets:
+            count = len(market_data[market])
+            print(f"  - {market}: {count} messages")
+        
+        assert len(markets_with_data) > 0, "Should receive data from at least one market"
+        
+        # Cleanup
+        for sub in subscriptions:
+            sub.dispose()
+        
+        print("✅ Layer 2 subscription management validated")
+    
+    def test_layer2_ready_for_layer3_development(self):
+        """Final validation that Layer 2 is ready for Layer 3+ development"""
+        # This is the comprehensive readiness check
+        
+        print("🔍 Final Layer 2 Readiness Check...")
+        
+        # 1. Basic functionality
+        stream = DydxTradesStream()
+        assert stream.connect() is True
+        print("  ✅ Basic connectivity")
+        
+        # 2. Data streams work
+        trades_obs = stream.get_trades_observable()
+        orderbook_obs = stream.get_orderbook_observable("BTC-USD")
+        
+        data_received = []
+        trades_sub = trades_obs.subscribe(lambda x: data_received.append(('trade', x)))
+        orderbook_sub = orderbook_obs.subscribe(lambda x: data_received.append(('orderbook', x)))
+        
+        time.sleep(5)  # Quick check
+        
+        assert len(data_received) > 0, "Should receive streaming data"
+        print("  ✅ Data streaming working")
+        
+        # 3. Data structure validation
+        trade_data = [d[1] for d in data_received if d[0] == 'trade']
+        orderbook_data = [d[1] for d in data_received if d[0] == 'orderbook']
+        
+        if trade_data:
+            assert 'price' in trade_data[0], "Trade data has required fields"
+        if orderbook_data:
+            assert 'bids' in orderbook_data[0], "Orderbook data has required fields"
+        print("  ✅ Data structure validation")
+        
+        # 4. Resource cleanup
+        trades_sub.dispose()
+        orderbook_sub.dispose()
+        print("  ✅ Resource cleanup")
+        
+        print("🎉 Layer 2 is READY for Layer 3+ development!")
+        print("🚀 Proceed with confidence to higher layers")
+        
+        # This test should always pass if Layer 2 is truly ready
+        assert True
+
+
+class TestLayer2DashboardIntegration:
+    """Test dYdX stream integration with all implemented dashboards"""
+    
+    def test_btc_orderbook_dashboard_stream_integration(self):
+        """Test that BTCOrderbookDashboard properly integrates with dYdX stream"""
+        from btc_orderbook_dashboard import BTCOrderbookDashboard
+        
+        # Arrange: Create dashboard and capture stream usage
+        dashboard = BTCOrderbookDashboard()
+        assert dashboard.stream is not None
+        assert hasattr(dashboard.stream, 'get_orderbook_observable')
+        
+        # Act: Connect stream and get orderbook observable
+        connect_result = dashboard.stream.connect()
+        assert connect_result is True
+        
+        orderbook_obs = dashboard.stream.get_orderbook_observable("BTC-USD")
+        assert orderbook_obs is not None
+        
+        # Test that dashboard can process orderbook updates
+        orderbook_updates = []
+        subscription = orderbook_obs.subscribe(lambda x: orderbook_updates.append(x))
+        
+        time.sleep(3)  # Collect some updates
+        subscription.dispose()
+        
+        # Assert: Dashboard integration works
+        assert len(orderbook_updates) > 0, "Should receive orderbook updates"
+        
+        # Validate orderbook structure expected by dashboard
+        orderbook = orderbook_updates[0]
+        assert 'asks' in orderbook, "Orderbook should have asks for dashboard"
+        assert 'bids' in orderbook, "Orderbook should have bids for dashboard"
+        assert isinstance(orderbook['asks'], list), "Asks should be list for dashboard"
+        assert isinstance(orderbook['bids'], list), "Bids should be list for dashboard"
+        
+        print(f"✅ BTC Orderbook Dashboard: {len(orderbook_updates)} updates processed")
+    
+    def test_multi_market_dashboard_stream_integration(self):
+        """Test that MultiMarketDashboard properly integrates with dYdX stream"""
+        from multi_market_dashboard import MultiMarketDashboard
+        
+        # Arrange: Create dashboard and verify stream setup
+        dashboard = MultiMarketDashboard()
+        assert dashboard.stream is not None
+        
+        # Test dashboard's expected markets
+        expected_markets = ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD", "DOGE-USD", "ATOM-USD"]
+        assert dashboard.markets == expected_markets
+        
+        # Act: Connect and test multi-market observables
+        connect_result = dashboard.stream.connect()
+        assert connect_result is True
+        
+        # Test that we can create observables for all dashboard markets
+        market_observables = {}
+        for market in dashboard.markets:
+            obs = dashboard.stream.get_orderbook_observable(market)
+            assert obs is not None, f"Should create observable for {market}"
+            market_observables[market] = obs
+        
+        # Test parallel data collection (like dashboard does)
+        all_updates = {market: [] for market in dashboard.markets}
+        subscriptions = []
+        
+        for market in dashboard.markets:
+            obs = market_observables[market]
+            sub = obs.subscribe(lambda x, m=market: all_updates[m].append(x))
+            subscriptions.append(sub)
+        
+        time.sleep(5)  # Collect updates from all markets
+        
+        # Cleanup subscriptions
+        for sub in subscriptions:
+            sub.dispose()
+        
+        # Assert: Multi-market integration works
+        markets_with_data = [m for m, updates in all_updates.items() if len(updates) > 0]
+        assert len(markets_with_data) >= 3, f"Should receive data from multiple markets, got: {markets_with_data}"
+        
+        print(f"✅ Multi-Market Dashboard: {len(markets_with_data)} markets with data")
+    
+    def test_reactive_trades_dashboard_stream_integration(self):
+        """Test that BTCDashboard (reactive trades) properly integrates with dYdX stream"""
+        from reactive_trades_dashboard import BTCDashboard
+        
+        # Arrange: Create dashboard
+        dashboard = BTCDashboard()
+        assert dashboard.stream is not None
+        assert hasattr(dashboard.stream, 'get_trades_observable')
+        
+        # Act: Connect and get trades observable
+        connect_result = dashboard.stream.connect()
+        assert connect_result is True
+        
+        trades_obs = dashboard.stream.get_trades_observable("BTC-USD")
+        assert trades_obs is not None
+        
+        # Test trades data collection
+        trades_updates = []
+        subscription = trades_obs.subscribe(lambda x: trades_updates.append(x))
+        
+        time.sleep(4)  # Collect trade updates
+        subscription.dispose()
+        
+        # Assert: Trades integration works
+        assert len(trades_updates) > 0, "Should receive trade updates"
+        
+        # Validate trade structure expected by dashboard
+        trade = trades_updates[0]
+        assert 'price' in trade, "Trade should have price for dashboard"
+        assert 'size' in trade, "Trade should have size for dashboard"
+        assert 'side' in trade, "Trade should have side for dashboard"
+        
+        print(f"✅ Reactive Trades Dashboard: {len(trades_updates)} trade updates processed")
+    
+    def test_spreads_dashboard_stream_integration(self):
+        """Test that SpreadsDashboard properly integrates with dYdX stream"""
+        from reactive_spreads_dashboard import SpreadsDashboard
+        
+        # Arrange: Create dashboard
+        dashboard = SpreadsDashboard()
+        assert dashboard.stream is not None
+        
+        # Act: Connect stream
+        connect_result = dashboard.stream.connect()
+        assert connect_result is True
+        
+        # Test that dashboard can access both trades and orderbook data
+        trades_obs = dashboard.stream.get_trades_observable("BTC-USD")
+        orderbook_obs = dashboard.stream.get_orderbook_observable("BTC-USD")
+        
+        assert trades_obs is not None, "Spreads dashboard needs trades data"
+        assert orderbook_obs is not None, "Spreads dashboard needs orderbook data"
+        
+        # Test parallel data collection (spreads need both data types)
+        trades_data = []
+        orderbook_data = []
+        
+        trades_sub = trades_obs.subscribe(lambda x: trades_data.append(x))
+        orderbook_sub = orderbook_obs.subscribe(lambda x: orderbook_data.append(x))
+        
+        time.sleep(4)  # Collect both types of updates
+        
+        trades_sub.dispose()
+        orderbook_sub.dispose()
+        
+        # Assert: Spreads dashboard integration works
+        assert len(trades_data) > 0, "Should receive trades for spread calculation"
+        assert len(orderbook_data) > 0, "Should receive orderbook for spread calculation"
+        
+        print(f"✅ Spreads Dashboard: {len(trades_data)} trades, {len(orderbook_data)} orderbooks")
+    
+    def test_dashboard_performance_under_load(self):
+        """Test that stream can handle multiple dashboard subscriptions simultaneously"""
+        # Arrange: Create all dashboards (simulating real usage)
+        from btc_orderbook_dashboard import BTCOrderbookDashboard
+        from multi_market_dashboard import MultiMarketDashboard
+        from reactive_trades_dashboard import BTCDashboard
+        from reactive_spreads_dashboard import SpreadsDashboard
+        
+        # Create single stream (as dashboards would in real usage)
+        from layer2_dydx_stream import DydxTradesStream
+        stream = DydxTradesStream()
+        
+        # Act: Connect and create multiple concurrent subscriptions
+        connect_result = stream.connect()
+        assert connect_result is True
+        
+        # Simulate multiple dashboard subscriptions
+        all_data = {
+            'btc_orderbook': [],
+            'eth_orderbook': [],
+            'sol_orderbook': [],
+            'btc_trades': [],
+            'eth_trades': []
+        }
+        
+        subscriptions = [
+            stream.get_orderbook_observable("BTC-USD").subscribe(lambda x: all_data['btc_orderbook'].append(x)),
+            stream.get_orderbook_observable("ETH-USD").subscribe(lambda x: all_data['eth_orderbook'].append(x)),
+            stream.get_orderbook_observable("SOL-USD").subscribe(lambda x: all_data['sol_orderbook'].append(x)),
+            stream.get_trades_observable("BTC-USD").subscribe(lambda x: all_data['btc_trades'].append(x)),
+            stream.get_trades_observable("ETH-USD").subscribe(lambda x: all_data['eth_trades'].append(x))
+        ]
+        
+        # Monitor performance metrics
+        start_time = time.time()
+        time.sleep(6)  # Collect data under load
+        end_time = time.time()
+        
+        # Cleanup
+        for sub in subscriptions:
+            sub.dispose()
+        
+        # Assert: Performance acceptable under dashboard load
+        total_updates = sum(len(data) for data in all_data.values())
+        duration = end_time - start_time
+        updates_per_second = total_updates / duration
+        
+        assert total_updates > 20, f"Should handle multiple subscriptions, got {total_updates} updates"
+        assert updates_per_second > 2, f"Should maintain reasonable throughput: {updates_per_second:.2f} updates/sec"
+        
+        # Verify all subscription types received data
+        active_streams = [name for name, data in all_data.items() if len(data) > 0]
+        assert len(active_streams) >= 3, f"Multiple streams should be active: {active_streams}"
+        
+        print(f"✅ Dashboard Performance: {total_updates} updates in {duration:.1f}s ({updates_per_second:.2f}/sec)")
+    
+    def test_dashboard_error_recovery_patterns(self):
+        """Test that dashboards can handle stream errors gracefully"""
+        from layer2_dydx_stream import DydxTradesStream
+        
+        # Arrange: Create stream and setup error tracking
+        stream = DydxTradesStream()
+        connect_result = stream.connect()
+        assert connect_result is True
+        
+        # Act: Create subscription with error handling (like dashboards should)
+        data_received = []
+        errors_received = []
+        completions_received = []
+        
+        def on_next(data):
+            data_received.append(data)
+        
+        def on_error(error):
+            errors_received.append(error)
+        
+        def on_completed():
+            completions_received.append(True)
+        
+        # Test both trades and orderbook error handling
+        trades_sub = stream.get_trades_observable("BTC-USD").subscribe(
+            on_next=on_next,
+            on_error=on_error,
+            on_completed=on_completed
+        )
+        
+        time.sleep(3)  # Normal operation
+        
+        # Simulate what dashboards should handle
+        assert len(data_received) > 0, "Should receive data during normal operation"
+        
+        trades_sub.dispose()
+        
+        # Test reconnection capability (important for dashboard resilience)
+        reconnect_result = stream.connect()  # Should handle reconnection
+        assert reconnect_result is True, "Stream should support reconnection for dashboard resilience"
+        
+        print(f"✅ Dashboard Error Recovery: {len(data_received)} updates, resilient reconnection")
+
+
+class TestLayer2DataStructures:
+    """Test that Layer 2 provides data structures that dashboards expect"""
+    
+    def test_orderbook_structure_for_dashboard_consumption(self):
+        """Test that orderbook data structure meets dashboard requirements"""
+        from layer2_dydx_stream import DydxTradesStream
+        
+        stream = DydxTradesStream()
+        stream.connect()
+        
+        # Collect orderbook data
+        orderbook_updates = []
+        subscription = stream.get_orderbook_observable("BTC-USD").subscribe(
+            lambda x: orderbook_updates.append(x)
+        )
+        
+        time.sleep(3)
+        subscription.dispose()
+        
+        assert len(orderbook_updates) > 0, "Should receive orderbook updates"
+        
+        # Validate structure that ALL dashboards expect
+        orderbook = orderbook_updates[0]
+        
+        # Core structure validation
+        assert isinstance(orderbook, dict), "Orderbook must be dict for dashboard processing"
+        assert 'asks' in orderbook, "Must have asks for sell-side display"
+        assert 'bids' in orderbook, "Must have bids for buy-side display"
+        assert isinstance(orderbook['asks'], list), "Asks must be list for iteration"
+        assert isinstance(orderbook['bids'], list), "Bids must be list for iteration"
+        
+        # Price/size structure validation (critical for dashboard display)
+        if orderbook['asks']:
+            ask = orderbook['asks'][0]
+            assert 'price' in ask, "Ask must have price for display"
+            assert 'size' in ask, "Ask must have size for volume display"
+            assert isinstance(float(ask['price']), float), "Price must be numeric"
+            assert isinstance(float(ask['size']), float), "Size must be numeric"
+        
+        if orderbook['bids']:
+            bid = orderbook['bids'][0]
+            assert 'price' in bid, "Bid must have price for display"
+            assert 'size' in bid, "Bid must have size for volume display"
+            assert isinstance(float(bid['price']), float), "Price must be numeric"
+            assert isinstance(float(bid['size']), float), "Size must be numeric"
+        
+        # Depth validation (dashboards expect reasonable depth)
+        ask_count = len(orderbook['asks'])
+        bid_count = len(orderbook['bids'])
+        assert ask_count >= 1, f"Should have at least one ask for dashboard: {ask_count}"
+        assert bid_count >= 1, f"Should have at least one bid for dashboard: {bid_count}"
+        
+        # Prefer more depth but don't fail if market is thin
+        if ask_count >= 3 and bid_count >= 3:
+            print(f"Good orderbook depth: {ask_count} asks, {bid_count} bids")
+        else:
+            print(f"Thin orderbook: {ask_count} asks, {bid_count} bids (acceptable for dashboard)")
+        
+        print(f"✅ Orderbook Structure: {ask_count} asks, {bid_count} bids with proper format")
+    
+    def test_trade_structure_for_dashboard_consumption(self):
+        """Test that trade data structure meets dashboard requirements"""
+        from layer2_dydx_stream import DydxTradesStream
+        
+        stream = DydxTradesStream()
+        stream.connect()
+        
+        # Collect trade data
+        trade_updates = []
+        subscription = stream.get_trades_observable("BTC-USD").subscribe(
+            lambda x: trade_updates.append(x)
+        )
+        
+        time.sleep(4)
+        subscription.dispose()
+        
+        assert len(trade_updates) > 0, "Should receive trade updates"
+        
+        # Validate structure that trades dashboards expect
+        trade = trade_updates[0]
+        
+        # Core structure validation
+        assert isinstance(trade, dict), "Trade must be dict for dashboard processing"
+        assert 'price' in trade, "Must have price for trade display"
+        assert 'size' in trade, "Must have size for volume display"
+        assert 'side' in trade, "Must have side for buy/sell indication"
+        
+        # Data type validation (critical for dashboard calculations)
+        assert isinstance(float(trade['price']), float), "Price must be numeric for calculations"
+        assert isinstance(float(trade['size']), float), "Size must be numeric for volume calculations"
+        assert trade['side'] in ['BUY', 'SELL'], f"Side must be BUY/SELL for dashboard logic: {trade['side']}"
+        
+        # Timestamp validation (for dashboard time series)
+        assert 'createdAt' in trade, "Must have timestamp for time-based displays"
+        
+        # Market identification (multi-market dashboards need this)
+        assert 'metadata' in trade, "Must have metadata for market identification"
+        assert 'market_name' in trade['metadata'], "Must identify market for multi-market dashboards"
+        
+        print(f"✅ Trade Structure: Valid format with price ${trade['price']}, side {trade['side']}")
+    
+    def test_stream_timing_for_dashboard_updates(self):
+        """Test that stream provides timely updates for dashboard refresh rates"""
+        from layer2_dydx_stream import DydxTradesStream
+        
+        stream = DydxTradesStream()
+        stream.connect()
+        
+        # Monitor update timing (dashboards need consistent updates)
+        update_times = []
+        
+        def record_update_time(data):
+            update_times.append(time.time())
+        
+        subscription = stream.get_orderbook_observable("BTC-USD").subscribe(record_update_time)
+        
+        time.sleep(10)  # Monitor for sufficient time
+        subscription.dispose()
+        
+        assert len(update_times) >= 5, "Should receive multiple updates for timing analysis"
+        
+        # Calculate update intervals
+        intervals = []
+        for i in range(1, len(update_times)):
+            interval = update_times[i] - update_times[i-1]
+            intervals.append(interval)
+        
+        # Validate timing suitable for dashboards
+        avg_interval = sum(intervals) / len(intervals)
+        max_interval = max(intervals)
+        min_interval = min(intervals)
+        
+        # Dashboard requirements
+        assert avg_interval < 5.0, f"Average update interval too slow for dashboards: {avg_interval:.2f}s"
+        assert max_interval < 10.0, f"Maximum gap too long for smooth dashboard updates: {max_interval:.2f}s"
+        
+        # Consistency check
+        interval_variance = sum((i - avg_interval) ** 2 for i in intervals) / len(intervals)
+        assert interval_variance < 25.0, f"Update timing too irregular for smooth dashboard: {interval_variance:.2f}"
+        
+        print(f"✅ Stream Timing: avg {avg_interval:.2f}s, max {max_interval:.2f}s, variance {interval_variance:.2f}")
+    
+    def test_multi_market_data_consistency(self):
+        """Test that multi-market data is consistent for multi-market dashboards"""
+        from layer2_dydx_stream import DydxTradesStream
+        
+        stream = DydxTradesStream()
+        stream.connect()
+        
+        # Test multiple markets simultaneously (like MultiMarketDashboard)
+        markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+        market_data = {market: [] for market in markets}
+        subscriptions = []
+        
+        for market in markets:
+            obs = stream.get_orderbook_observable(market)
+            sub = obs.subscribe(lambda x, m=market: market_data[m].append(x))
+            subscriptions.append(sub)
+        
+        time.sleep(6)  # Collect data from all markets
+        
+        for sub in subscriptions:
+            sub.dispose()
+        
+        # Validate multi-market consistency
+        markets_with_data = [m for m, data in market_data.items() if len(data) > 0]
+        assert len(markets_with_data) >= 2, f"Should receive data from multiple markets: {markets_with_data}"
+        
+        # Validate data structure consistency across markets
+        for market, data in market_data.items():
+            if data:  # If we have data for this market
+                sample = data[0]
+                assert 'asks' in sample, f"{market} orderbook missing asks"
+                assert 'bids' in sample, f"{market} orderbook missing bids"
+                assert len(sample['asks']) > 0, f"{market} should have ask data"
+                assert len(sample['bids']) > 0, f"{market} should have bid data"
+        
+        print(f"✅ Multi-Market Consistency: {len(markets_with_data)} markets with consistent data structure")
