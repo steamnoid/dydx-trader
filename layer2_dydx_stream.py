@@ -5,9 +5,13 @@ Following TDD methodology - implementing DydxTradesStream class step by step
 import asyncio
 import json
 import threading
+import time
 from typing import Optional
 from dydx_v4_client.indexer.socket.websocket import IndexerSocket
 from dydx_v4_client.network import make_mainnet
+
+# Global configuration for orderbook depth optimization
+ORDERBOOK_DEPTH = 3  # Number of price levels to maintain per side (bids/asks)
 
 
 class DydxTradesStream:
@@ -114,10 +118,19 @@ class DydxTradesStream:
                 # Orderbook subscription confirmed - contains initial orderbook snapshot
                 if message.get("contents"):
                     orderbook_data = message.get("contents", {})
-                    # Replace current orderbook with initial snapshot for this market
+                    # Replace current orderbook with initial snapshot for this market (respecting depth limit)
+                    asks = orderbook_data.get("asks", [])
+                    bids = orderbook_data.get("bids", [])
+                    
+                    # Limit initial snapshot to configured depth
+                    if len(asks) > ORDERBOOK_DEPTH:
+                        asks = asks[:ORDERBOOK_DEPTH]
+                    if len(bids) > ORDERBOOK_DEPTH:
+                        bids = bids[:ORDERBOOK_DEPTH]
+                    
                     self._current_orderbooks[market_id] = {
-                        "asks": orderbook_data.get("asks", []),
-                        "bids": orderbook_data.get("bids", [])
+                        "asks": asks,
+                        "bids": bids
                     }
                     # Emit to observer if present for this market
                     if market_id in self._orderbook_observers:
@@ -309,14 +322,14 @@ class DydxTradesStream:
         return rx.create(create_orderbook_stream)
     
     def _apply_orderbook_update(self, update_data: dict, market_id: str):
-        """Apply incremental orderbook updates to current state for specific market"""
+        """Apply incremental orderbook updates to current state for specific market with depth optimization"""
         # Ensure we have an orderbook for this market
         if market_id not in self._current_orderbooks:
             self._current_orderbooks[market_id] = {"asks": [], "bids": []}
         
         current_orderbook = self._current_orderbooks[market_id]
         
-        # Update asks
+        # Update asks with depth optimization
         if "asks" in update_data:
             for ask_update in update_data["asks"]:
                 # Handle both list format [["price", "size"]] and dict format {"price": "...", "size": "..."}
@@ -329,7 +342,17 @@ class DydxTradesStream:
                     size = ask_update["size"]
                     ask_entry = ask_update
                 
-                # Remove existing entry at this price
+                price_float = float(price)
+                
+                # OPTIMIZATION: Early filtering - skip updates for prices beyond our maintained depth
+                if len(current_orderbook["asks"]) >= ORDERBOOK_DEPTH:
+                    # If we already have max depth, check if this price would be relevant
+                    worst_ask_price = float(current_orderbook["asks"][-1]["price"])  # Highest ask price
+                    if price_float > worst_ask_price and float(size) > 0:
+                        # This is a worse (higher) ask price than our worst maintained price, skip it
+                        continue
+                
+                # Remove existing entry at this price (if any)
                 current_orderbook["asks"] = [
                     ask for ask in current_orderbook["asks"] 
                     if ask["price"] != price
@@ -338,10 +361,12 @@ class DydxTradesStream:
                 # Add new entry if size > 0
                 if float(size) > 0:
                     current_orderbook["asks"].append(ask_entry)
-                    # Keep asks sorted by price (ascending)
+                    # Keep asks sorted by price (ascending) and limit depth
                     current_orderbook["asks"].sort(key=lambda x: float(x["price"]))
+                    if len(current_orderbook["asks"]) > ORDERBOOK_DEPTH:
+                        current_orderbook["asks"] = current_orderbook["asks"][:ORDERBOOK_DEPTH]
         
-        # Update bids
+        # Update bids with depth optimization
         if "bids" in update_data:
             for bid_update in update_data["bids"]:
                 # Handle both list format [["price", "size"]] and dict format {"price": "...", "size": "..."}
@@ -354,7 +379,17 @@ class DydxTradesStream:
                     size = bid_update["size"]
                     bid_entry = bid_update
                 
-                # Remove existing entry at this price
+                price_float = float(price)
+                
+                # OPTIMIZATION: Early filtering - skip updates for prices beyond our maintained depth
+                if len(current_orderbook["bids"]) >= ORDERBOOK_DEPTH:
+                    # If we already have max depth, check if this price would be relevant
+                    worst_bid_price = float(current_orderbook["bids"][-1]["price"])  # Lowest bid price
+                    if price_float < worst_bid_price and float(size) > 0:
+                        # This is a worse (lower) bid price than our worst maintained price, skip it
+                        continue
+                
+                # Remove existing entry at this price (if any)
                 current_orderbook["bids"] = [
                     bid for bid in current_orderbook["bids"] 
                     if bid["price"] != price
@@ -363,9 +398,24 @@ class DydxTradesStream:
                 # Add new entry if size > 0
                 if float(size) > 0:
                     current_orderbook["bids"].append(bid_entry)
-                    # Keep bids sorted by price (descending)
+                    # Keep bids sorted by price (descending) and limit depth
                     current_orderbook["bids"].sort(key=lambda x: float(x["price"]), reverse=True)
+                    if len(current_orderbook["bids"]) > ORDERBOOK_DEPTH:
+                        current_orderbook["bids"] = current_orderbook["bids"][:ORDERBOOK_DEPTH]
 
+        # Trim orderbook to configured depth
+        self._trim_orderbook_depth(current_orderbook)
+
+    def _trim_orderbook_depth(self, orderbook):
+        """Trim the orderbook to maintain only the configured depth for bids and asks"""
+        # Trim asks (lowest prices first)
+        if len(orderbook["asks"]) > ORDERBOOK_DEPTH:
+            orderbook["asks"] = orderbook["asks"][:ORDERBOOK_DEPTH]
+        
+        # Trim bids (highest prices first)
+        if len(orderbook["bids"]) > ORDERBOOK_DEPTH:
+            orderbook["bids"] = orderbook["bids"][:ORDERBOOK_DEPTH]
+    
     def is_connected(self):
         """Check if WebSocket connection is active"""
         return self._is_connected
