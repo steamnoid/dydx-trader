@@ -66,23 +66,18 @@ class DydxTradesStream:
                 message = json.loads(message)
             except json.JSONDecodeError:
                 return
-        
-        # Debug: print all messages to understand what we're receiving
-        print(f"DEBUG: Received message: {message}")
-        
+
         if message.get("type") == "connected":
             self._connection_id = message.get("connection_id")
         elif message.get("channel") == "v4_trades" and message.get("type") == "subscribed":
             # Trades subscription confirmed - may contain initial trade data
             market_id = message.get("id", "unknown")
-            print(f"DEBUG: Trades subscription confirmed for {market_id}")
             # Check if subscription confirmation contains trade data
             if message.get("contents"):
                 trades_data = message.get("contents", {})
                 if "trades" in trades_data:
                     trade_count = len(trades_data['trades'])
                     self._initial_trade_counts[market_id] = trade_count
-                    print(f"DEBUG: Emitting {trade_count} trades from subscription confirmation for {market_id}")
                     for trade in trades_data["trades"]:
                         enriched_trade = self._add_metadata_to_trade(trade, is_initial=True, market_id=market_id)
                         
@@ -92,12 +87,10 @@ class DydxTradesStream:
                         
                         # Also emit to unified observer if present
                         if self._unified_trades_observer:
-                            print(f"DEBUG: Emitting initial trade to unified observer for {market_id}")
                             self._unified_trades_observer.on_next(enriched_trade)
         elif message.get("channel") == "v4_trades" and message.get("contents"):
             # Emit trade data to observer
             market_id = message.get("id", "unknown")
-            print(f"DEBUG: Trades data received for {market_id}: {message.get('contents')}")
             trades_data = message.get("contents", {})
             if "trades" in trades_data:
                 for trade in trades_data["trades"]:
@@ -109,7 +102,6 @@ class DydxTradesStream:
                     
                     # Also emit to unified observer if present
                     if self._unified_trades_observer:
-                        print(f"DEBUG: Emitting trade to unified observer for {market_id}")
                         self._unified_trades_observer.on_next(enriched_trade)
     
     def get_trades_observable(self, market_id: str = "BTC-USD"):
