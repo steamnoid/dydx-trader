@@ -52,6 +52,8 @@ from rich.layout import Layout
 from rich.text import Text
 from rich.columns import Columns
 
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from layer2_dydx_stream import DydxTradesStream
 
 @dataclass
@@ -95,7 +97,7 @@ class Position:
     entry_price: float
     signal_type: str
     size: float
-    status: str  # "OPEN", "CLOSED"
+    status: str  # "OPEN", "CLOSED", "MISSED"
     pnl: float = 0.0
     pnl_usd: float = 0.0
     exit_price: Optional[float] = None
@@ -106,6 +108,80 @@ class Position:
     max_loss: float = 0.0
     holding_time: float = 0.0
     fees_total: float = 0.0
+    result: str = "pending"  # "win", "loss", "missed", "pending"
+    exit_type: str = "none"  # "TP", "SL", "timeout", "none"
+
+class FillSimulator:
+    """Realistic fill simulation based on orderbook depth and market spread"""
+    
+    def __init__(self, min_orderbook_depth_usd: float = 5.0):
+        self.min_orderbook_depth_usd = min_orderbook_depth_usd
+        
+    def simulate_fill(self, order_price: float, side: str, current_bid: float, 
+                     current_ask: float, order_size_usd: float) -> bool:
+        """
+        Simulate realistic fill probability based on orderbook position and spread
+        
+        Args:
+            order_price: Limit order price
+            side: "BUY" or "SELL" 
+            current_bid: Current best bid price
+            current_ask: Current best ask price
+            order_size_usd: Order size in USD
+            
+        Returns:
+            True if order would likely fill, False otherwise
+        """
+        # Calculate how competitive our order is relative to current spread
+        spread = current_ask - current_bid
+        mid_price = (current_bid + current_ask) / 2
+        
+        if side == "BUY":
+            # For buy orders, check how far below the current ask we're placing
+            price_improvement = current_ask - order_price
+            competitiveness = price_improvement / spread if spread > 0 else 0
+            
+            # More competitive if we're close to but not crossing the ask
+            
+            # Don't allow crossing the spread (would become TAKER)
+            if order_price >= current_ask:
+                return False
+                
+        else:  # SELL
+            # For sell orders, check how far above the current bid we're placing  
+            price_improvement = order_price - current_bid
+            competitiveness = price_improvement / spread if spread > 0 else 0
+            
+            
+            # Don't allow crossing the spread (would become TAKER)
+            if order_price <= current_bid:
+                return False
+        
+        # Simulate orderbook depth based on spread and order size
+        # Assume reasonable depth exists at competitive prices
+        estimated_depth_usd = self.min_orderbook_depth_usd * (1 + competitiveness * 2)
+        
+        # Check if sufficient depth exists for our order size
+        if estimated_depth_usd < order_size_usd:
+            return False
+        
+        # Base fill probability based on competitiveness and market conditions
+        if competitiveness > 0.8:  # Very competitive price
+            base_probability = 0.85
+        elif competitiveness > 0.5:  # Moderately competitive
+            base_probability = 0.70
+        elif competitiveness > 0.2:  # Somewhat competitive
+            base_probability = 0.50
+        else:  # Not very competitive
+            base_probability = 0.25
+            
+        # Adjust for order size relative to estimated depth
+        size_factor = min(1.0, estimated_depth_usd / order_size_usd)
+        final_probability = base_probability * size_factor
+        
+        will_fill = random.random() < final_probability
+        
+        return will_fill
 
 class RealisticOrderSimulator:
     """Simulates realistic order execution with latency, slippage, and fees"""
@@ -120,6 +196,9 @@ class RealisticOrderSimulator:
         self.latency_variance_ms = 30
         self.slippage_factor = 0.0001  # Base slippage as % of price
         self.market_impact_factor = 0.00005  # Additional slippage based on size
+        
+        # Add fill simulator for realistic execution
+        self.fill_simulator = FillSimulator()
         
     def simulate_market_order(self, market: str, side: str, size: float, 
                             current_bid: float, current_ask: float, 
@@ -171,12 +250,13 @@ class RealisticOrderSimulator:
     def simulate_limit_order(self, market: str, side: str, size: float, 
                            limit_price: float, current_bid: float, 
                            current_ask: float) -> Order:
-        """Simulate limit order for MAKER-ONLY strategy (Post-Only behavior)
+        """Simulate limit order for MAKER-ONLY strategy with realistic fill simulation
         
         Per dYdX v4 documentation:
         - Post Only orders enforce MAKER-only behavior  
         - Orders are cancelled if they would cross the spread (become TAKER)
         - MAKER orders earn rebates (negative fees)
+        - Now includes realistic fill simulation based on orderbook depth
         """
         
         order = Order(
@@ -204,38 +284,16 @@ class RealisticOrderSimulator:
             order.latency_ms = random.uniform(5, 15)  # Fast cancellation
             return order
         
-        # MAKER-ONLY: Calculate fill probability based on how competitive our price is
-        fill_probability = 0.0
-        
-        if side == "BUY":
-            # Buy limit below ask (MAKER behavior)
-            if limit_price <= current_bid:
-                # At or better than current bid - high chance of fill
-                bid_improvement = max(0, (current_bid - limit_price) / current_bid)
-                fill_probability = max(0.3, min(0.85, 0.5 + bid_improvement * 10))
-            else:
-                # Between bid and ask - moderate chance depending on market movement
-                spread = current_ask - current_bid
-                position_in_spread = (limit_price - current_bid) / spread if spread > 0 else 0
-                fill_probability = max(0.1, 0.6 - position_in_spread * 0.4)
-                
-        elif side == "SELL":
-            # Sell limit above bid (MAKER behavior)
-            if limit_price >= current_ask:
-                # At or better than current ask - high chance of fill
-                ask_improvement = max(0, (limit_price - current_ask) / current_ask)
-                fill_probability = max(0.3, min(0.85, 0.5 + ask_improvement * 10))
-            else:
-                # Between bid and ask - moderate chance depending on market movement
-                spread = current_ask - current_bid
-                position_in_spread = (current_ask - limit_price) / spread if spread > 0 else 0
-                fill_probability = max(0.1, 0.6 - position_in_spread * 0.4)
-        
         # Simulate execution latency for limit orders (faster than market orders)
         order.latency_ms = random.uniform(5, 30)
         
-        # Simulate fill based on probability
-        if random.random() < fill_probability:
+        # Use realistic fill simulation based on orderbook depth
+        order_size_usd = size * limit_price
+        would_fill = self.fill_simulator.simulate_fill(
+            limit_price, side, current_bid, current_ask, order_size_usd
+        )
+        
+        if would_fill:
             order.status = "FILLED"
             order.filled_size = size
             order.avg_fill_price = limit_price
@@ -251,16 +309,17 @@ class RealisticOrderSimulator:
 class RealisticMeanReversionStrategy:
     """Mean-reversion strategy with realistic execution logic"""
     
-    def __init__(self, lookback_seconds: int = 10, deviation_threshold: float = 1.5):
+    def __init__(self, lookback_seconds: int = 10, deviation_threshold: float = 1.5, dashboard=None):
         self.lookback_seconds = lookback_seconds
         self.deviation_threshold = deviation_threshold
         self.price_history: Dict[str, Deque[PricePoint]] = defaultdict(lambda: deque(maxlen=100))
         self.order_simulator = RealisticOrderSimulator()
+        self.dashboard = dashboard  # Reference to dashboard for account balance access
         
-        # Position sizing parameters
-        self.base_position_size_usd = 1000.0
-        self.max_position_size_usd = 5000.0
-        self.min_position_size_usd = 100.0
+        # Position sizing parameters - percentage-based on account balance
+        self.position_size_pct = 0.05  # 5% of account balance per trade
+        self.max_position_size_pct = 0.20  # Maximum 20% of account per position  
+        self.min_position_size_usd = 2.0  # Minimum $2 position size
         
     def update_price(self, market: str, price_data: dict):
         """Update price history with enhanced data"""
@@ -364,19 +423,21 @@ class RealisticMeanReversionStrategy:
     
     def calculate_position_size(self, market: str, signal: MeanReversionSignal, 
                               current_price: float) -> float:
-        """Calculate realistic position size based on signal strength and risk"""
+        """Calculate realistic position size based on account balance and signal strength"""
         
-        # Base size adjusted by confidence
+        # Base size as percentage of current account balance
         confidence_factor = signal.confidence / 100.0
-        size_usd = self.base_position_size_usd * confidence_factor
+        base_size_usd = self.dashboard.account_balance * self.position_size_pct
+        size_usd = base_size_usd * confidence_factor
         
         # Adjust for volatility (higher volatility = smaller size)
         volatility_factor = max(0.5, 1.0 - (abs(signal.z_score) - 2.0) * 0.1)
         size_usd *= volatility_factor
         
         # Apply position sizing limits
+        max_size_usd = self.dashboard.account_balance * self.max_position_size_pct
         size_usd = max(self.min_position_size_usd, 
-                      min(self.max_position_size_usd, size_usd))
+                      min(max_size_usd, size_usd))
         
         # Convert to token size
         token_size = size_usd / current_price
@@ -389,7 +450,13 @@ class RealisticMeanReversionDashboard:
     def __init__(self):
         self.console = Console()
         self.stream = DydxTradesStream()
-        self.strategy = RealisticMeanReversionStrategy()
+        
+        # Account management - $100 starting capital
+        self.starting_capital = 100.0
+        self.account_balance = 100.0  # Updated with realized P&L
+        
+        # Initialize strategy with dashboard reference for account balance access
+        self.strategy = RealisticMeanReversionStrategy(dashboard=self)
         
         # Market tracking
         self.active_markets = set()
@@ -398,7 +465,6 @@ class RealisticMeanReversionDashboard:
         
         # Realistic position tracking
         self.positions: List[Position] = []
-        self.pending_orders: List[Order] = []
         self.total_pnl_usd = 0.0
         self.total_fees_paid = 0.0
         self.position_count = 0
@@ -543,9 +609,6 @@ class RealisticMeanReversionDashboard:
             # Update existing positions
             self._update_positions()
             
-            # Process pending orders
-            self._process_pending_orders()
-            
             self.update_count += 1
             self.last_update = time.time()
             
@@ -578,7 +641,7 @@ class RealisticMeanReversionDashboard:
         return True
     
     def _execute_entry_order(self, signal: MeanReversionSignal):
-        """Execute MAKER-ONLY entry order with limit orders"""
+        """Execute MAKER-ONLY entry order with realistic fill simulation"""
         market = signal.market
         current_point = self.current_prices.get(market)
         
@@ -620,7 +683,8 @@ class RealisticMeanReversionDashboard:
                 size=order.filled_size,
                 status="OPEN",
                 entry_order=order,
-                fees_total=order.fees_paid  # This will be negative (rebate)
+                fees_total=order.fees_paid,  # This will be negative (rebate)
+                result="pending"
             )
             
             self.positions.append(position)
@@ -628,10 +692,23 @@ class RealisticMeanReversionDashboard:
             self.market_stats[market]['total_positions'] += 1
             self.position_count += 1
             self.total_fees_paid += order.fees_paid  # Adding negative value (rebate)
-        
-        elif order.status == "PENDING":
-            # Add to pending orders to track unfilled maker orders
-            self.pending_orders.append(order)
+            
+        else:  # CANCELLED or MISSED (no longer using PENDING status)
+            # Create missed position for tracking strategy effectiveness
+            missed_position = Position(
+                market=market,
+                entry_time=time.time(),
+                entry_price=limit_price,
+                signal_type=signal.signal_type,
+                size=position_size,
+                status="MISSED",
+                result="missed",
+                exit_type="none"
+            )
+            
+            self.positions.append(missed_position)
+            self.market_stats[market]['total_positions'] += 1
+    
     
     def _update_positions(self):
         """Update open positions with realistic PnL and exit logic"""
@@ -661,15 +738,42 @@ class RealisticMeanReversionDashboard:
                 position.max_profit = max(position.max_profit, position.pnl_usd)
                 position.max_loss = min(position.max_loss, position.pnl_usd)
                 
-                # Exit logic: multiple conditions
+                # Exit logic: multiple conditions with timeout handling
                 should_exit = False
                 exit_reason = ""
                 
-                # 1. Time-based exit (mean reversion should be quick)
+                # Calculate holding time
                 holding_time = current_time - position.entry_time
-                if holding_time > 60:  # 1 minute max holding
+                
+                # 1. Hard timeout (30 seconds max - market conditions can change quickly)
+                if holding_time > 30:  # 30 second hard timeout
                     should_exit = True
-                    exit_reason = "time_limit"
+                    exit_reason = "timeout"
+                    
+                    # If we can't exit after timeout, mark as timeout and close artificially
+                    if holding_time > 35:  # 5 second grace period for exit attempts
+                        # Force close position due to timeout
+                        position.status = "CLOSED"
+                        position.exit_time = current_time
+                        position.exit_price = current_point.bid if position.signal_type == "BUY" else current_point.ask
+                        position.holding_time = holding_time
+                        position.exit_type = "timeout"
+                        position.result = "win" if position.pnl_usd > 0 else "loss"
+                        
+                        # Update statistics for timeout
+                        market_stats = self.market_stats[position.market]
+                        market_stats['current_position'] = None
+                        market_stats['total_pnl_usd'] += position.pnl_usd
+                        market_stats['positions'].append(position)
+                        
+                        if position.pnl_usd > 0:
+                            self.winning_positions += 1
+                            market_stats['winning_positions'] += 1
+                        
+                        self.total_pnl_usd += position.pnl_usd
+                        self._update_market_stats(position.market)
+                        
+                        continue
                 
                 # 2. Profit target
                 elif position.pnl_usd > 50:  # $50 profit target
@@ -693,11 +797,10 @@ class RealisticMeanReversionDashboard:
                     self._execute_exit_order(position, exit_reason)
     
     def _execute_exit_order(self, position: Position, reason: str):
-        """Execute MAKER-ONLY exit order with limit orders"""
+        """Execute MAKER-ONLY exit order with realistic fill simulation"""
         current_point = self.current_prices.get(position.market)
         if not current_point:
             return
-        
         # MAKER-ONLY: Calculate exit limit prices that provide liquidity
         exit_side = "SELL" if position.signal_type == "BUY" else "BUY"
         
@@ -708,6 +811,7 @@ class RealisticMeanReversionDashboard:
             # Buying: place limit order BELOW current bid to provide liquidity  
             limit_price = current_point.bid * 0.9995  # 0.05% below bid
         
+        # Use realistic fill simulation with orderbook depth
         exit_order = self.strategy.order_simulator.simulate_limit_order(
             position.market, exit_side, abs(position.size), limit_price,
             current_point.bid, current_point.ask
@@ -721,6 +825,20 @@ class RealisticMeanReversionDashboard:
             position.exit_order = exit_order
             position.holding_time = position.exit_time - position.entry_time
             position.fees_total += exit_order.fees_paid  # Adding another rebate
+            
+            # Set exit type based on reason
+            if reason == "profit_target":
+                position.exit_type = "TP"
+                position.result = "win"
+            elif reason == "stop_loss":
+                position.exit_type = "SL" 
+                position.result = "loss"
+            elif reason in ["time_limit", "timeout"]:
+                position.exit_type = "timeout"
+                position.result = "win" if position.pnl_usd > 0 else "loss"
+            else:
+                position.exit_type = "TP" if position.pnl_usd > 0 else "SL"
+                position.result = "win" if position.pnl_usd > 0 else "loss"
             
             # Final PnL calculation with MAKER rebates
             if position.signal_type == "BUY":
@@ -745,79 +863,19 @@ class RealisticMeanReversionDashboard:
             self.total_pnl_usd += position.pnl_usd
             self.total_fees_paid += exit_order.fees_paid
             
+            # Update account balance with realized P&L
+            self.account_balance += position.pnl_usd
+            
             # Update market-specific stats
             self._update_market_stats(position.market)
-    
-    def _process_pending_orders(self):
-        """Process pending MAKER limit orders for fills"""
-        current_time = time.time()
-        
-        # Process pending orders and check for fills
-        filled_orders = []
-        for order in self.pending_orders[:]:  # Create copy to iterate safely
             
-            # Cancel orders that are too old (e.g., 30 seconds)
-            if current_time - order.timestamp > 30:
-                order.status = "CANCELLED"
-                self.pending_orders.remove(order)
-                continue
+        elif exit_order.status == "CANCELLED":
+            # Order cancelled due to crossing spread - keep position open
+            pass
             
-            # Check if order conditions have changed for potential fill
-            current_point = self.current_prices.get(order.market)
-            if not current_point:
-                continue
-            
-            # Re-evaluate fill probability based on current market conditions
-            if order.side == "BUY":
-                # Check if market moved down towards our buy limit
-                if current_point.bid <= order.price:
-                    # Market came to us - high chance of fill
-                    if random.random() < 0.7:  # 70% chance of fill when price hits our level
-                        order.status = "FILLED"
-                        order.filled_size = order.size
-                        order.avg_fill_price = order.price
-                        
-                        # Calculate MAKER fees (rebate)
-                        notional_value = order.size * order.avg_fill_price
-                        order.fees_paid = notional_value * self.strategy.order_simulator.maker_fee_rate
-                        
-                        filled_orders.append(order)
-                        self.pending_orders.remove(order)
-                        
-            elif order.side == "SELL":
-                # Check if market moved up towards our sell limit
-                if current_point.ask >= order.price:
-                    # Market came to us - high chance of fill
-                    if random.random() < 0.7:  # 70% chance of fill when price hits our level
-                        order.status = "FILLED"
-                        order.filled_size = order.size
-                        order.avg_fill_price = order.price
-                        
-                        # Calculate MAKER fees (rebate)
-                        notional_value = order.size * order.avg_fill_price
-                        order.fees_paid = notional_value * self.strategy.order_simulator.maker_fee_rate
-                        
-                        filled_orders.append(order)
-                        self.pending_orders.remove(order)
-        
-        # Create positions from newly filled orders
-        for order in filled_orders:
-            position = Position(
-                market=order.market,
-                entry_time=order.timestamp,
-                entry_price=order.avg_fill_price,
-                signal_type=order.side,  # "BUY" or "SELL"
-                size=order.filled_size,
-                status="OPEN",
-                entry_order=order,
-                fees_total=order.fees_paid  # Negative (rebate)
-            )
-            
-            self.positions.append(position)
-            self.market_stats[order.market]['current_position'] = position
-            self.market_stats[order.market]['total_positions'] += 1
-            self.position_count += 1
-            self.total_fees_paid += order.fees_paid  # Adding negative value (rebate)
+        else:
+            # Order not filled due to insufficient volume - keep position open  
+            pass
     
     def _update_market_stats(self, market: str):
         """Update comprehensive market statistics"""
@@ -876,16 +934,27 @@ class RealisticMeanReversionDashboard:
         signal_count = len([s for s in self.signals.values() if s.signal_type != "NEUTRAL"])
         open_positions = sum(1 for m in self.market_stats.values() 
                            if m['current_position'] is not None)
-        pending_count = len(self.pending_orders)
+        # Count different position types
+        open_positions = len([p for p in self.positions if p.status == "OPEN"])
+        closed_positions = len([p for p in self.positions if p.status == "CLOSED"])
+        missed_positions = len([p for p in self.positions if p.status == "MISSED"])
         
         header_text = Text()
-        header_text.append("📈 MAKER-ONLY MEAN-REVERSION DASHBOARD ", style="bold blue")
+        header_text.append("🎯 REALISTIC MAKER-ONLY DASHBOARD ", style="bold blue")
         header_text.append(f"| Markets: {active_count} ", style="white")
         header_text.append(f"| Signals: {signal_count} ", style="green")
         header_text.append(f"| Open: {open_positions} ", style="yellow")
-        header_text.append(f"| Pending: {pending_count} ", style="orange")
+        header_text.append(f"| Closed: {closed_positions} ", style="cyan")
+        header_text.append(f"| Missed: {missed_positions} ", style="orange1")
         header_text.append(f"| P&L: ${self.total_pnl_usd:.2f} ", 
                           style="green" if self.total_pnl_usd >= 0 else "red")
+        
+        # Account balance display
+        balance_color = "green" if self.account_balance >= self.starting_capital else "red"
+        balance_pct = ((self.account_balance - self.starting_capital) / self.starting_capital) * 100
+        header_text.append(f"| Balance: ${self.account_balance:.2f} ({balance_pct:+.1f}%) ", 
+                          style=balance_color)
+        
         header_text.append(f"| Time: {current_time}", style="cyan")
         
         # Second line with MAKER-specific session info
@@ -1060,21 +1129,23 @@ class RealisticMeanReversionDashboard:
         stats_table.add_row("📊 Avg Trade", f"${avg_pnl_usd:.2f}")
         
         stats_table.add_row("", "")
-        stats_table.add_row("🔴 Open Positions", str(len(open_positions)))
-        stats_table.add_row("⏳ Pending Orders", str(len(self.pending_orders)))
+        stats_table.add_row("� Open Positions", str(len(open_positions)))
+        stats_table.add_row("🔴 Closed Positions", str(len([p for p in self.positions if p.status == "CLOSED"])))
+        stats_table.add_row("🟠 Missed Entries", str(len([p for p in self.positions if p.status == "MISSED"])))
         stats_table.add_row("💹 Open P&L", f"${open_pnl:.2f}")
         stats_table.add_row("📏 Exposure", f"${total_exposure:.0f}")
         
         stats_table.add_row("", "")
-        stats_table.add_row("⚙️ Strategy", "MAKER-ONLY")
+        stats_table.add_row("⚙️ Strategy", "REALISTIC MAKER")
         stats_table.add_row("📊 Z-Threshold", f"{self.strategy.deviation_threshold:.1f}")
         stats_table.add_row("🎯 Min Confidence", "75%")
         stats_table.add_row("💎 Fee Rate", "-0.02%")
+        stats_table.add_row("🔍 Fill Threshold", "50 USD")
         
-        return Panel(stats_table, title="📈 MAKER Trading Performance", border_style="green")
+        return Panel(stats_table, title="📈 Realistic MAKER Performance", border_style="green")
     
     def _create_positions_table(self) -> Panel:
-        """Create enhanced positions table"""
+        """Create enhanced positions table with new status types"""
         table = Table(show_header=True, header_style="bold yellow")
         table.add_column("Market", style="white", width=8)
         table.add_column("Side", style="cyan", width=6)
@@ -1086,12 +1157,13 @@ class RealisticMeanReversionDashboard:
         table.add_column("Fees", style="red", width=7)
         table.add_column("Hold Time", style="magenta", width=9)
         table.add_column("Status", style="white", width=10)
+        table.add_column("Exit", style="cyan", width=8)
         
         # Show recent positions (last 25)
         recent_positions = sorted(self.positions, key=lambda p: p.entry_time, reverse=True)[:25]
         
         if not recent_positions:
-            table.add_row("--", "--", "--", "--", "--", "--", "--", "--", "--", "--")
+            table.add_row("--", "--", "--", "--", "--", "--", "--", "--", "--", "--", "--")
         else:
             current_time = time.time()
             
@@ -1112,11 +1184,13 @@ class RealisticMeanReversionDashboard:
                 # Holding time
                 if position.status == "OPEN":
                     hold_time = current_time - position.entry_time
+                elif position.status == "MISSED":
+                    hold_time = 0  # No holding time for missed entries
                 else:
                     hold_time = position.holding_time
                 
                 if hold_time < 60:
-                    hold_str = f"{hold_time:.0f}s"
+                    hold_str = f"{hold_time:.0f}s" if hold_time > 0 else "--"
                 else:
                     hold_str = f"{hold_time/60:.1f}m"
                 
@@ -1127,32 +1201,55 @@ class RealisticMeanReversionDashboard:
                 else:
                     side_str = "[red]SHORT[/red]"
                 
-                size_str = f"{position.size:.3f}"
-                entry_str = f"${position.entry_price:.3f}"
-                current_str = f"${current_price:.3f}"
+                size_str = f"{position.size:.3f}" if position.status != "MISSED" else f"({position.size:.3f})"
+                entry_str = f"${position.entry_price:.3f}" if position.status != "MISSED" else f"(${position.entry_price:.3f})"
+                current_str = f"${current_price:.3f}" if position.status != "MISSED" else "--"
                 
                 # P&L formatting
-                pnl_usd_str = f"${position.pnl_usd:+.2f}"
-                pnl_pct_str = f"{position.pnl:+.2f}%"
+                if position.status == "MISSED":
+                    pnl_usd_str = "--"
+                    pnl_pct_str = "--"
+                    fees_str = "--"
+                else:
+                    pnl_usd_str = f"${position.pnl_usd:+.2f}"
+                    pnl_pct_str = f"{position.pnl:+.2f}%"
+                    
+                    if position.pnl_usd > 0:
+                        pnl_usd_str = f"[green]{pnl_usd_str}[/green]"
+                        pnl_pct_str = f"[green]{pnl_pct_str}[/green]"
+                    elif position.pnl_usd < 0:
+                        pnl_usd_str = f"[red]{pnl_usd_str}[/red]"
+                        pnl_pct_str = f"[red]{pnl_pct_str}[/red]"
+                    
+                    # Fees
+                    fees_str = f"${abs(position.fees_total):.2f}"
                 
-                if position.pnl_usd > 0:
-                    pnl_usd_str = f"[green]{pnl_usd_str}[/green]"
-                    pnl_pct_str = f"[green]{pnl_pct_str}[/green]"
-                elif position.pnl_usd < 0:
-                    pnl_usd_str = f"[red]{pnl_usd_str}[/red]"
-                    pnl_pct_str = f"[red]{pnl_pct_str}[/red]"
-                
-                # Fees
-                fees_str = f"${abs(position.fees_total):.2f}"
-                
-                # Status
-                status_str = position.status
+                # Enhanced Status display
                 if position.status == "OPEN":
                     status_str = "[yellow]OPEN[/yellow]"
-                elif position.pnl_usd > 0:
-                    status_str = "[green]PROFIT[/green]"
+                elif position.status == "MISSED":
+                    status_str = "[orange1]MISSED[/orange1]"
+                elif position.status == "CLOSED":
+                    if position.result == "win":
+                        status_str = "[green]WIN[/green]"
+                    elif position.result == "loss":
+                        status_str = "[red]LOSS[/red]"
+                    else:
+                        status_str = "[white]CLOSED[/white]"
                 else:
-                    status_str = "[red]LOSS[/red]"
+                    status_str = position.status
+                
+                # Exit type display
+                if position.exit_type == "TP":
+                    exit_str = "[green]TP[/green]"
+                elif position.exit_type == "SL":
+                    exit_str = "[red]SL[/red]"
+                elif position.exit_type == "timeout":
+                    exit_str = "[orange1]TIME[/orange1]"
+                elif position.status == "MISSED":
+                    exit_str = "[orange1]MISS[/orange1]"
+                else:
+                    exit_str = "--"
                 
                 table.add_row(
                     position.market.replace('-USD', ''),
@@ -1164,53 +1261,78 @@ class RealisticMeanReversionDashboard:
                     pnl_pct_str,
                     fees_str,
                     hold_str,
-                    status_str
+                    status_str,
+                    exit_str
                 )
         
         return Panel(table, title="💼 Realistic Position Tracking", border_style="yellow")
     
     def _print_final_summary(self):
-        """Print comprehensive final performance summary for MAKER trading"""
-        closed_positions = [p for p in self.positions if p.status == "CLOSED"]
+        """Print comprehensive final performance summary for realistic MAKER trading"""
+        all_positions = self.positions
+        closed_positions = [p for p in all_positions if p.status == "CLOSED"]
+        missed_positions = [p for p in all_positions if p.status == "MISSED"]
         
-        if not closed_positions:
-            self.console.print("[yellow]No completed trades to summarize.[/yellow]")
+        if not all_positions:
+            self.console.print("[yellow]No positions to summarize.[/yellow]")
             return
         
         # Calculate comprehensive statistics
-        total_trades = len(closed_positions)
-        winning_trades = len([p for p in closed_positions if p.pnl_usd > 0])
-        losing_trades = total_trades - winning_trades
+        total_attempts = len(all_positions)
+        total_closed = len(closed_positions)
+        total_missed = len(missed_positions)
         
-        gross_profit = sum(p.pnl_usd for p in closed_positions if p.pnl_usd > 0)
-        gross_loss = abs(sum(p.pnl_usd for p in closed_positions if p.pnl_usd < 0))
-        
-        # MAKER-specific calculations
-        rebate_earned = abs(self.total_fees_paid) if self.total_fees_paid < 0 else 0
-        fees_paid = self.total_fees_paid if self.total_fees_paid > 0 else 0
+        # Closed position statistics
+        if closed_positions:
+            winning_trades = len([p for p in closed_positions if p.result == "win"])
+            losing_trades = len([p for p in closed_positions if p.result == "loss"])
+            
+            # Exit type breakdown
+            tp_exits = len([p for p in closed_positions if p.exit_type == "TP"])
+            sl_exits = len([p for p in closed_positions if p.exit_type == "SL"])
+            timeout_exits = len([p for p in closed_positions if p.exit_type == "timeout"])
+            
+            gross_profit = sum(p.pnl_usd for p in closed_positions if p.pnl_usd > 0)
+            gross_loss = abs(sum(p.pnl_usd for p in closed_positions if p.pnl_usd < 0))
+            
+            # MAKER-specific calculations
+            rebate_earned = abs(self.total_fees_paid) if self.total_fees_paid < 0 else 0
+            fees_paid = self.total_fees_paid if self.total_fees_paid > 0 else 0
+        else:
+            winning_trades = losing_trades = tp_exits = sl_exits = timeout_exits = 0
+            gross_profit = gross_loss = rebate_earned = fees_paid = 0
+            
         net_profit_with_rebates = self.total_pnl_usd + rebate_earned - fees_paid
         
         avg_win = gross_profit / winning_trades if winning_trades > 0 else 0
         avg_loss = gross_loss / losing_trades if losing_trades > 0 else 0
         
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+        win_rate = (winning_trades / total_closed * 100) if total_closed > 0 else 0
+        fill_rate = (total_closed / total_attempts * 100) if total_attempts > 0 else 0
         
         best_trade = max(p.pnl_usd for p in closed_positions) if closed_positions else 0
         worst_trade = min(p.pnl_usd for p in closed_positions) if closed_positions else 0
         
         avg_holding_time = statistics.mean([p.holding_time for p in closed_positions if p.holding_time > 0])
         
-        # Print summary
-        self.console.print("\n" + "="*70)
-        self.console.print("[bold cyan]MAKER-ONLY MEAN REVERSION STRATEGY - FINAL RESULTS[/bold cyan]")
-        self.console.print("="*70)
+        # Print enhanced summary
+        self.console.print("\n" + "="*80)
+        self.console.print("[bold cyan]REALISTIC MAKER-ONLY MEAN REVERSION STRATEGY - FINAL RESULTS[/bold cyan]")
+        self.console.print("="*80)
         
         self.console.print(f"📊 [bold]Trading Performance[/bold]")
-        self.console.print(f"   Strategy Type: MAKER-ONLY (Liquidity Provider)")
-        self.console.print(f"   Total Trades: {total_trades}")
-        self.console.print(f"   Winning Trades: {winning_trades} ({win_rate:.1f}%)")
+        self.console.print(f"   Strategy Type: MAKER-ONLY with Realistic Fill Simulation")
+        self.console.print(f"   Total Signal Attempts: {total_attempts}")
+        self.console.print(f"   Successful Fills: {total_closed} ({fill_rate:.1f}%)")
+        self.console.print(f"   Missed Opportunities: {total_missed} ({(total_missed/total_attempts*100) if total_attempts > 0 else 0:.1f}%)")
+        self.console.print(f"   Winning Trades: {winning_trades} ({win_rate:.1f}% of filled)")
         self.console.print(f"   Losing Trades: {losing_trades}")
+        
+        self.console.print(f"\n🎯 [bold]Exit Type Breakdown[/bold]")
+        self.console.print(f"   Take Profit (TP): {tp_exits}")
+        self.console.print(f"   Stop Loss (SL): {sl_exits}")
+        self.console.print(f"   Timeouts: {timeout_exits}")
         
         self.console.print(f"\n💰 [bold]Financial Results[/bold]")
         self.console.print(f"   Gross Profit: ${gross_profit:.2f}")
@@ -1233,23 +1355,23 @@ class RealisticMeanReversionDashboard:
         self.console.print(f"   Worst Trade: ${worst_trade:.2f}")
         self.console.print(f"   Avg Hold Time: {avg_holding_time:.1f}s")
         
-        self.console.print(f"\n🎯 [bold]MAKER Strategy Assessment[/bold]")
-        if win_rate >= 60 and profit_factor >= 1.5 and net_profit_with_rebates > 0:
-            self.console.print(f"   [bold green]✅ PROFITABLE MAKER STRATEGY[/bold green]")
-            self.console.print(f"   [bold green]💎 Rebate advantage: ${rebate_earned:.2f}[/bold green]")
-        elif win_rate >= 50 and profit_factor >= 1.2:
-            self.console.print(f"   [bold yellow]⚠️  MARGINAL MAKER STRATEGY[/bold yellow]")
+        self.console.print(f"\n🎯 [bold]Realistic Strategy Assessment[/bold]")
+        if win_rate >= 60 and profit_factor >= 1.5 and net_profit_with_rebates > 0 and fill_rate >= 70:
+            self.console.print(f"   [bold green]✅ HIGHLY PROFITABLE REALISTIC STRATEGY[/bold green]")
+            self.console.print(f"   [bold green]💎 Strong fill rate with rebate advantage[/bold green]")
+        elif win_rate >= 50 and profit_factor >= 1.2 and fill_rate >= 50:
+            self.console.print(f"   [bold yellow]⚠️  MARGINAL BUT REALISTIC STRATEGY[/bold yellow]")
         else:
-            self.console.print(f"   [bold red]❌ UNPROFITABLE STRATEGY[/bold red]")
+            self.console.print(f"   [bold red]❌ NEEDS IMPROVEMENT - Low fill rate or unprofitable[/bold red]")
         
-        # MAKER-specific insights
-        fill_rate = (total_trades / (total_trades + len(self.pending_orders)) * 100) if (total_trades + len(self.pending_orders)) > 0 else 100
-        self.console.print(f"\n📈 [bold]MAKER Trading Insights[/bold]")
-        self.console.print(f"   Limit Order Fill Rate: {fill_rate:.1f}%")
-        self.console.print(f"   Average Rebate per Trade: ${rebate_earned/total_trades:.3f}" if total_trades > 0 else "   No trades completed")
-        self.console.print(f"   Liquidity Provision Strategy: {'Effective' if rebate_earned > 10 else 'Needs Improvement'}")
+        # Enhanced MAKER-specific insights
+        self.console.print(f"\n📈 [bold]Realistic Fill Analysis[/bold]")
+        self.console.print(f"   Order Fill Success Rate: {fill_rate:.1f}%")
+        self.console.print(f"   Average Rebate per Filled Trade: ${rebate_earned/total_closed:.3f}" if total_closed > 0 else "   No trades completed")
+        self.console.print(f"   Volume-Based Fill Logic: {'Effective' if fill_rate >= 60 else 'Too Conservative - Consider Lower Thresholds'}")
+        self.console.print(f"   Missed Opportunity Impact: {(total_missed * 30):.0f} USD potential (est. $30 avg)")
         
-        self.console.print("="*70)
+        self.console.print("="*80)
 
 def main():
     """Main entry point"""
