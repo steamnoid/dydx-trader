@@ -85,12 +85,12 @@ class DydxTradesStreamCallbacks:
                         enriched_trade = self._add_metadata_to_trade(trade, is_initial=True, market_id=market_id)
                         
                         # Call individual market callback if present
-                        if market_id in self._trades_callbacks:
-                            self._trades_callbacks[market_id](enriched_trade)
+                        # if market_id in self._trades_callbacks:
+                            # self._trades_callbacks[market_id](enriched_trade)
                         
                         # Also call unified callback if present
-                        if self._unified_trades_callback:
-                            self._unified_trades_callback(enriched_trade)
+                        # if self._unified_trades_callback:
+                            # self._unified_trades_callback(enriched_trade)
                             
         elif message.get("channel") == "v4_trades" and message.get("contents"):
             # Emit trade data to callbacks
