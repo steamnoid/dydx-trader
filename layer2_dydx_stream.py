@@ -133,8 +133,8 @@ class DydxTradesStream:
                         "bids": bids
                     }
                     # Emit to observer if present for this market
-                    if market_id in self._orderbook_observers:
-                        self._orderbook_observers[market_id].on_next(self._current_orderbooks[market_id].copy())
+                    # if market_id in self._orderbook_observers:
+                #         self._orderbook_observers[market_id].on_next(self._current_orderbooks[market_id].copy())
             elif message.get("contents"):
                 # Orderbook update - apply incremental changes
                 orderbook_data = message.get("contents", {})
