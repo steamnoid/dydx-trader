@@ -11,7 +11,7 @@ from dydx_v4_client.indexer.socket.websocket import IndexerSocket
 from dydx_v4_client.network import make_mainnet
 
 # Global configuration for orderbook depth optimization
-ORDERBOOK_DEPTH = 3  # Number of price levels to maintain per side (bids/asks)
+ORDERBOOK_DEPTH = 100  # Number of price levels to maintain per side (bids/asks)
 
 
 class DydxTradesStreamCallbacks:
@@ -289,6 +289,81 @@ class DydxTradesStreamCallbacks:
     def get_subscribed_markets(self) -> Set[str]:
         """Get set of subscribed markets"""
         return self._subscribed_markets.copy()
+    
+    def unsubscribe_from_trades(self, market_id: str):
+        """Unsubscribe from trades for a specific market and clean up state"""
+        if not self._is_connected:
+            return
+        
+        # Send unsubscribe message
+        unsubscribe_message = {
+            "type": "unsubscribe",
+            "channel": "v4_trades", 
+            "id": market_id
+        }
+        try:
+            self._websocket.send(json.dumps(unsubscribe_message))
+        except Exception:
+            pass  # Ignore send errors during cleanup
+        
+        # Clean up state
+        self._trades_callbacks.pop(market_id, None)
+        self._initial_trade_counts.pop(market_id, None)
+        self._subscribed_markets.discard(market_id)
+    
+    def unsubscribe_from_orderbook(self, market_id: str):
+        """Unsubscribe from orderbook for a specific market and clean up state"""
+        if not self._is_connected:
+            return
+        
+        # Send unsubscribe message
+        unsubscribe_message = {
+            "type": "unsubscribe",
+            "channel": "v4_orderbook",
+            "id": market_id
+        }
+        try:
+            self._websocket.send(json.dumps(unsubscribe_message))
+        except Exception:
+            pass  # Ignore send errors during cleanup
+        
+        # Clean up state
+        self._orderbook_callbacks.pop(market_id, None)
+        self._current_orderbooks.pop(market_id, None)
+    
+    def cleanup_inactive_markets(self, active_markets: Set[str]):
+        """Clean up state for markets that are no longer active"""
+        # Find markets to clean up
+        subscribed_markets = self._subscribed_markets.copy()
+        markets_to_cleanup = subscribed_markets - active_markets
+        
+        for market_id in markets_to_cleanup:
+            self.unsubscribe_from_trades(market_id)
+            self.unsubscribe_from_orderbook(market_id)
+    
+    def reset_connection_state(self):
+        """Reset all connection state - useful for reconnection scenarios"""
+        self._is_connected = False
+        self._connection_id = None
+        self._trades_callbacks.clear()
+        self._initial_trade_counts.clear()
+        self._subscribed_markets.clear()
+        self._orderbook_callbacks.clear()
+        self._current_orderbooks.clear()
+        self._unified_trades_callback = None
+    
+    def get_state_debug_info(self) -> Dict:
+        """Get debug information about current state sizes"""
+        return {
+            'is_connected': self._is_connected,
+            'subscribed_markets_count': len(self._subscribed_markets),
+            'trades_callbacks_count': len(self._trades_callbacks),
+            'orderbook_callbacks_count': len(self._orderbook_callbacks),
+            'current_orderbooks_count': len(self._current_orderbooks),
+            'initial_trade_counts_count': len(self._initial_trade_counts),
+            'has_unified_trades_callback': self._unified_trades_callback is not None,
+            'subscribed_markets': list(self._subscribed_markets)
+        }
     
     def _add_metadata_to_trade(self, trade: dict, is_initial: bool = False, market_id: str = "unknown") -> dict:
         """Add metadata to trade data"""

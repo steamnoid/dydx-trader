@@ -97,6 +97,27 @@ class ScalpingStrategy:
         self.momentum_window = 8 # seconds
         self.taker_window = 12  # seconds
     
+    def cleanup_inactive_markets(self, active_markets: set):
+        """Clean up data for markets no longer being tracked"""
+        # Clean up orderbook and trade history for inactive markets
+        markets_to_remove = []
+        current_time = time.time()
+        
+        for market in self.orderbook_history:
+            if market not in active_markets:
+                # Check if market has been inactive for too long
+                last_update = 0
+                if self.orderbook_history[market]:
+                    last_update = self.orderbook_history[market][-1].timestamp
+                
+                if current_time - last_update > 600:  # 10 minutes inactive
+                    markets_to_remove.append(market)
+        
+        for market in markets_to_remove:
+            self.orderbook_history.pop(market, None)
+            self.trade_history.pop(market, None)
+            self.market_volumes.pop(market, None)
+    
     def update_market_volume(self, market: str, volume_24h: float):
         """Update 24h volume for market"""
         self.market_volumes[market] = volume_24h
@@ -360,6 +381,16 @@ class ScalpingDashboard:
             'current_position': None,
             'last_score': None
         })
+        
+        # State cleanup tracking
+        self.last_score_calculation: Dict[str, float] = {}
+        self.last_price_update: Dict[str, float] = {}
+        self.last_cleanup = time.time()
+        self.cleanup_interval = 1000  # Start with cleanup every 1000 updates
+        
+        # Emergency limits
+        self.max_markets_tracked = 200
+        self.max_position_log_entries = 5000
     
     def _fetch_usd_markets(self):
         """Fetch all active USD markets from dYdX API with 24h volume"""
@@ -412,6 +443,94 @@ class ScalpingDashboard:
         
         return fallback_markets
     
+    def _cleanup_old_state(self):
+        """Clean up old/stale state to prevent unbounded memory growth"""
+        current_time = time.time()
+        
+        # Define timeouts
+        MARKET_SCORE_TIMEOUT = 300      # 5 minutes
+        PRICE_UPDATE_TIMEOUT = 300      # 5 minutes  
+        MARKET_STATS_TIMEOUT = 600      # 10 minutes
+        
+        # Clean up market scores
+        stale_scores = [market for market, timestamp in self.last_score_calculation.items()
+                       if current_time - timestamp > MARKET_SCORE_TIMEOUT]
+        for market in stale_scores:
+            self.market_scores.pop(market, None)
+            self.last_score_calculation.pop(market, None)
+        
+        # Clean up current prices
+        stale_prices = [market for market, timestamp in self.last_price_update.items()
+                       if current_time - timestamp > PRICE_UPDATE_TIMEOUT]
+        for market in stale_prices:
+            self.current_prices.pop(market, None)
+            self.last_price_update.pop(market, None)
+        
+        # Clean up market stats for markets with no recent activity
+        stale_stats = []
+        for market in self.market_stats:
+            # Keep if has current position or recent score update
+            if (self.market_stats[market]['current_position'] is None and
+                market not in self.market_scores and
+                self.last_score_calculation.get(market, 0) < current_time - MARKET_STATS_TIMEOUT):
+                stale_stats.append(market)
+        
+        for market in stale_stats:
+            # Only remove if no active position
+            if self.market_stats[market]['current_position'] is None:
+                del self.market_stats[market]
+        
+        # Emergency cleanup if too many markets are tracked
+        if len(self.market_scores) > self.max_markets_tracked:
+            # Keep the most recently updated markets
+            sorted_markets = sorted(self.last_score_calculation.items(), 
+                                  key=lambda x: x[1], reverse=True)
+            markets_to_keep = set(market for market, _ in sorted_markets[:int(self.max_markets_tracked * 0.75)])
+            
+            # Clean up excess markets
+            markets_to_remove = set(self.market_scores.keys()) - markets_to_keep
+            for market in markets_to_remove:
+                self.market_scores.pop(market, None)
+                self.last_score_calculation.pop(market, None)
+                self.current_prices.pop(market, None)
+                self.last_price_update.pop(market, None)
+                
+                # Remove from market_stats if no active position
+                if (market in self.market_stats and 
+                    self.market_stats[market]['current_position'] is None):
+                    del self.market_stats[market]
+        
+        # Clean up position log
+        if len(self.position_log) > self.max_position_log_entries:
+            # Keep most recent entries
+            self.position_log = self.position_log[-int(self.max_position_log_entries * 0.8):]
+        
+        # Clean up positions list (existing logic enhanced)
+        if len(self.positions) > 1000:
+            self.positions = sorted(self.positions, key=lambda p: p.entry_time)[-800:]
+        
+        # Clean up strategy state for inactive markets
+        active_markets_from_scores = set(self.market_scores.keys())
+        self.strategy.cleanup_inactive_markets(active_markets_from_scores)
+    
+    def _get_state_debug_info(self) -> Dict:
+        """Get debug information about current state sizes"""
+        return {
+            'active_markets': len(self.active_markets),
+            'market_scores': len(self.market_scores),
+            'current_prices': len(self.current_prices),
+            'market_stats': len(self.market_stats),
+            'positions': len(self.positions),
+            'position_log': len(self.position_log),
+            'last_score_calculation': len(self.last_score_calculation),
+            'last_price_update': len(self.last_price_update),
+            'strategy_orderbook_history': len(self.strategy.orderbook_history),
+            'strategy_trade_history': len(self.strategy.trade_history),
+            'strategy_market_volumes': len(self.strategy.market_volumes),
+            'update_count': self.update_count,
+            'cleanup_interval': self.cleanup_interval
+        }
+    
     def start(self):
         """Start the dashboard"""
         # Fetch markets
@@ -454,12 +573,27 @@ class ScalpingDashboard:
         
         self.console.print(f"[green]✅ Subscribed to {len(markets) - subscription_errors} markets[/green]")
         
-        # Start live dashboard
-        with Live(self._create_dashboard(), refresh_per_second=2, console=self.console) as live:
+        # Start live dashboard with adaptive refresh rate
+        refresh_rate = 2  # Start with 2 Hz
+        last_dashboard_update = time.time()
+        
+        with Live(self._create_dashboard(), refresh_per_second=refresh_rate, console=self.console) as live:
             try:
                 while True:
-                    time.sleep(0.5)
-                    live.update(self._create_dashboard())
+                    current_time = time.time()
+                    
+                    # Adaptive dashboard refresh throttling
+                    dashboard_interval = 0.5  # Base 0.5s (2 Hz)
+                    if self.update_count > 1000000:  # Very high load
+                        dashboard_interval = 2.0  # 0.5 Hz
+                    elif self.update_count > 500000:  # High load  
+                        dashboard_interval = 1.0  # 1 Hz
+                    
+                    if current_time - last_dashboard_update >= dashboard_interval:
+                        live.update(self._create_dashboard())
+                        last_dashboard_update = current_time
+                    
+                    time.sleep(0.1)  # Small sleep to prevent excessive CPU usage
             except KeyboardInterrupt:
                 self.console.print("\n[yellow]Dashboard stopped by user[/yellow]")
                 self._log_session_summary()
@@ -470,27 +604,52 @@ class ScalpingDashboard:
             # Update strategy with orderbook data
             self.strategy.update_orderbook(market, data)
             
-            # Update current price
+            # Update current price and tracking
             bids = data.get('bids', [])
             asks = data.get('asks', [])
             
             if bids and asks:
                 mid_price = (float(bids[0]['price']) + float(asks[0]['price'])) / 2
                 self.current_prices[market] = mid_price
+                self.last_price_update[market] = time.time()
             
-            # Calculate market score
-            score = self.strategy.calculate_market_score(market)
-            if score:
-                self.market_scores[market] = score
-                self.market_stats[market]['last_score'] = score
-                
-                # Check for entry signal
-                current_positions = len([p for p in self.positions if p.status == "OPEN"])
-                if self.strategy.should_enter_position(score, current_positions):
-                    self._execute_entry(market, score)
+            # Calculate market score (with throttling for performance)
+            current_time = time.time()
+            last_calc = self.last_score_calculation.get(market, 0)
+            
+            # Adaptive scoring throttling based on update frequency
+            score_interval = 2.0  # Base interval of 2 seconds
+            if self.update_count > 100000:  # High frequency
+                score_interval = 5.0
+            elif self.update_count > 50000:  # Medium frequency
+                score_interval = 3.0
+            
+            if current_time - last_calc >= score_interval:
+                score = self.strategy.calculate_market_score(market)
+                if score:
+                    self.market_scores[market] = score
+                    self.market_stats[market]['last_score'] = score
+                    self.last_score_calculation[market] = current_time
+                    
+                    # Check for entry signal
+                    current_positions = len([p for p in self.positions if p.status == "OPEN"])
+                    if self.strategy.should_enter_position(score, current_positions):
+                        self._execute_entry(market, score)
             
             self.update_count += 1
             self.last_update = time.time()
+            
+            # Perform cleanup periodically
+            if self.update_count % self.cleanup_interval == 0:
+                self._cleanup_old_state()
+                
+                # Adapt cleanup frequency based on load
+                if self.update_count > 1000000:  # Very high load
+                    self.cleanup_interval = min(5000, self.cleanup_interval + 100)
+                elif self.update_count > 500000:  # High load
+                    self.cleanup_interval = min(3000, self.cleanup_interval + 50)
+                else:
+                    self.cleanup_interval = max(1000, self.cleanup_interval - 50)
             
         except Exception as e:
             self.console.print(f"[red]Error processing orderbook for {market}: {e}[/red]")
@@ -906,6 +1065,16 @@ class ScalpingDashboard:
         stats_table.add_row("🛑 Stop Loss", f"{self.strategy.sl_pct:.1f}%")
         stats_table.add_row("⏱️ Max Hold", f"{self.strategy.max_hold_time}s")
         stats_table.add_row("📊 Max Positions", str(self.strategy.max_positions))
+        
+        # Show debug info if high update count
+        if self.update_count > 100000:
+            debug_info = self._get_state_debug_info()
+            stats_table.add_row("", "")
+            stats_table.add_row("🔧 Debug Info", "")
+            stats_table.add_row("  Markets", str(debug_info['market_scores']))
+            stats_table.add_row("  Prices", str(debug_info['current_prices']))
+            stats_table.add_row("  Stats", str(debug_info['market_stats']))
+            stats_table.add_row("  Cleanup Int", str(debug_info['cleanup_interval']))
         
         return Panel(stats_table, title="📈 Performance Stats", border_style="green")
     

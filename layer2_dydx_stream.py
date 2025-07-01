@@ -11,7 +11,7 @@ from dydx_v4_client.indexer.socket.websocket import IndexerSocket
 from dydx_v4_client.network import make_mainnet
 
 # Global configuration for orderbook depth optimization
-ORDERBOOK_DEPTH = 3  # Number of price levels to maintain per side (bids/asks)
+ORDERBOOK_DEPTH = 100  # Number of price levels to maintain per side (bids/asks)
 
 
 class DydxTradesStream:
