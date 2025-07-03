@@ -17,13 +17,13 @@ ORDERBOOK_DEPTH = 100  # Number of price levels to maintain per side (bids/asks)
 class DydxTradesStreamCallbacks:
     """Manages dYdX WebSocket connection for trades data with callback-based interface"""
     
-    def __init__(self, websocket_url: str = "wss://indexer.dydx.trade/v4/ws"):
+    def __init__(self, websocket_url: str = "wss://indexer.v4testnet.dydx.exchange/v4/ws"):
         """Initialize the dYdX trades stream with callback support
         
         Args:
             websocket_url: WebSocket URL to connect to. 
-                          Default: "wss://indexer.dydx.trade/v4/ws" (mainnet)
-                          Testnet: "wss://indexer.v4testnet.dydx.exchange/v4/ws"
+                          Default: "wss://indexer.v4testnet.dydx.exchange/v4/ws" (testnet)
+                          Mainnet: "wss://indexer.dydx.trade/v4/ws"
         """
         self._websocket: Optional[IndexerSocket] = None
         self._connection_id: Optional[str] = None

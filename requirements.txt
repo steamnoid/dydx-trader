@@ -7,3 +7,4 @@ mitmproxy>=9.0.0  # HTTP/WebSocket proxy for recording/replay
 pytest>=7.0.0     # Testing framework for TDD
 pytest-asyncio   # Async test support
 websockets>=11.0.0  # WebSocket client for dYdX streaming
+pyzmq>=25.0.0     # ZeroMQ for inter-process communication

@@ -499,7 +499,7 @@ class RealisticMeanReversionDashboard:
             'total_fees_usd': 0.0,
             'winning_positions': 0,
             'total_positions': 0,
-            'current_position': None,
+            'open_positions': [],  # List of open positions (allows multiple per market)
             'avg_holding_time': 0.0,
             'best_trade': 0.0,
             'worst_trade': 0.0,
@@ -513,7 +513,7 @@ class RealisticMeanReversionDashboard:
         self.session_start = time.time()
         
         # Risk management
-        self.max_open_positions = 20
+        self.max_open_positions = 10
         self.max_total_exposure_usd = 10000.0
         self.daily_loss_limit_usd = 1000.0
         
@@ -549,10 +549,8 @@ class RealisticMeanReversionDashboard:
     def _get_fallback_markets(self):
         """Fallback markets in case API fetch fails"""
         return [
-            "W-USD", "BONK-USD", "CRV-USD", "WLD-USD", "SHIB-USD", "DYDX-USD",
-            "FIL-USD", "XLM-USD", "ICP-USD", "APT-USD", "INJ-USD", "SEI-USD",
-            "TRX-USD", "DOT-USD", "AVAX-USD", "LINK-USD", "XRP-USD", "SUI-USD",
-            "NEAR-USD", "ATOM-USD", "ADA-USD", "UNI-USD", "DOGE-USD",
+            "BTC-USD",
+            "ETH-USD"
         ]
     
     def start(self):
@@ -649,8 +647,8 @@ class RealisticMeanReversionDashboard:
                 self.signals[market] = signal
                 
                 # Check for position entry opportunities
-                if (signal.confidence > 75 and 
-                    signal.signal_type != "NEUTRAL" and
+                # if (signal.confidence > 75 and 
+                if(    signal.signal_type != "NEUTRAL" and
                     self._can_open_position(market)):
                     self._execute_entry_order(signal)
             
@@ -666,13 +664,8 @@ class RealisticMeanReversionDashboard:
     def _can_open_position(self, market: str) -> bool:
         """Check if we can open a new position based on risk limits"""
         
-        # Check if we already have a position in this market
-        if self.market_stats[market]['current_position']:
-            return False
-        
-        # Check maximum open positions
-        open_positions = sum(1 for m in self.market_stats.values() 
-                           if m['current_position'] is not None)
+        # Check maximum open positions across all markets
+        open_positions = sum(len(m['open_positions']) for m in self.market_stats.values())
         if open_positions >= self.max_open_positions:
             return False
         
@@ -703,7 +696,8 @@ class RealisticMeanReversionDashboard:
         
         # Record order entry time for TTL tracking (using time.time() for consistency)
         order_entry_time = time.time()
-        order_expiration_time = order_entry_time + 30  # 30s TTL
+        order_expiration_time = order_entry_time + 120  # 30s TTL
+
         
         # MAKER-ONLY: Calculate limit prices that DON'T cross the spread (provide liquidity)
         if signal.signal_type == "BUY":
@@ -725,6 +719,26 @@ class RealisticMeanReversionDashboard:
                 current_point.bid, current_point.ask
             )
         
+        position = Position(
+                market=market,
+                entry_time=order.timestamp,
+                entry_price=limit_price,
+                signal_type=signal.signal_type,
+                size=position_size,
+                status="PENDING",
+                entry_order=order,
+                result="pending",
+                order_entry_time=order_entry_time,
+                order_expiration_time=order_expiration_time
+        )
+            
+        # Log pending entry order
+        self._log_trade("ENTRY", position, {
+                "order_type": "LIMIT",
+                "order_expiration": order_expiration_time,
+                "signal_confidence": signal.confidence
+            })
+        
         if order.status == "FILLED":
             # Create position from filled MAKER order (immediate fill)
             position = Position(
@@ -740,17 +754,17 @@ class RealisticMeanReversionDashboard:
             )
             
             self.positions.append(position)
-            self.market_stats[market]['current_position'] = position
+            self.market_stats[market]['open_positions'].append(position)
             self.market_stats[market]['total_positions'] += 1
             self.position_count += 1
             self.total_fees_paid += order.fees_paid  # Adding negative value (rebate)
             
-            # Log filled entry order
-            # self._log_trade("FILL", position, {
-            #     "order_type": "LIMIT",
-            #     "fees_paid": order.fees_paid,
-            #     "signal_confidence": signal.confidence
-            # })
+            # Log filled entry order immediately
+            self._log_trade("FILL", position, {
+                "order_type": "LIMIT",
+                "fees_paid": order.fees_paid,
+                "signal_confidence": signal.confidence
+            })
             
         elif order.status == "PENDING":
             # Create pending position with TTL expiration tracking
@@ -768,10 +782,10 @@ class RealisticMeanReversionDashboard:
             )
             
             self.positions.append(pending_position)
-            self.market_stats[market]['current_position'] = pending_position
+            self.market_stats[market]['open_positions'].append(pending_position)
             self.market_stats[market]['total_positions'] += 1
             
-            # Log pending entry order
+            # Log pending entry order immediately
             self._log_trade("ENTRY", pending_position, {
                 "order_type": "LIMIT",
                 "order_expiration": order_expiration_time,
@@ -795,6 +809,8 @@ class RealisticMeanReversionDashboard:
             
             self.positions.append(missed_position)
             self.market_stats[market]['total_positions'] += 1
+        
+        
     
     def _log_trade(self, action: str, position: Position, details: dict = None):
         """Publish trade opportunity to pyzmq queue for live trader consumption"""
@@ -819,13 +835,14 @@ class RealisticMeanReversionDashboard:
                 if (position.order_expiration_time and 
                     current_time > position.order_expiration_time):
                     
-                    # Order expired - mark as MISSED and clear market position
+                    # Order expired - mark as MISSED and remove from open positions
                     position.status = "MISSED"
                     position.result = "missed"
                     position.exit_type = "expired"
                     
-                    # Clear current position from market stats
-                    self.market_stats[position.market]['current_position'] = None
+                    # Remove from open positions list
+                    if position in self.market_stats[position.market]['open_positions']:
+                        self.market_stats[position.market]['open_positions'].remove(position)
                     continue
                 
                 # Try to fill pending order with some probability based on time elapsed
@@ -901,7 +918,7 @@ class RealisticMeanReversionDashboard:
                 holding_time = current_time - position.entry_time
                 
                 # 1. Hard timeout (30 seconds max - market conditions can change quickly)
-                if holding_time > 30:  # 30 second hard timeout
+                if holding_time > 120:  # 30 second hard timeout
                     should_exit = True
                     exit_reason = "timeout"
                     
@@ -917,7 +934,9 @@ class RealisticMeanReversionDashboard:
                         
                         # Update statistics for timeout
                         market_stats = self.market_stats[position.market]
-                        market_stats['current_position'] = None
+                        # Remove from open positions
+                        if position in market_stats['open_positions']:
+                            market_stats['open_positions'].remove(position)
                         market_stats['total_pnl_usd'] += position.pnl_usd
                         market_stats['positions'].append(position)
                         
@@ -1005,7 +1024,9 @@ class RealisticMeanReversionDashboard:
             
             # Update statistics
             market_stats = self.market_stats[position.market]
-            market_stats['current_position'] = None
+            # Remove from open positions
+            if position in market_stats['open_positions']:
+                market_stats['open_positions'].remove(position)
             market_stats['total_pnl_usd'] += position.pnl_usd
             market_stats['total_fees_usd'] += position.fees_total  # This will be negative (total rebates)
             market_stats['positions'].append(position)
@@ -1022,13 +1043,13 @@ class RealisticMeanReversionDashboard:
             self.account_balance += position.pnl_usd
             
             # Log completed exit order
-            # self._log_trade("EXIT", position, {
-            #     "exit_reason": reason,
-            #     "exit_type": position.exit_type,
-            #     "holding_time": position.holding_time,
-            #     "fees_paid": exit_order.fees_paid,
-            #     "final_pnl": position.pnl_usd
-            # })
+            self._log_trade("EXIT", position, {
+                "exit_reason": reason,
+                "exit_type": position.exit_type,
+                "holding_time": position.holding_time,
+                "fees_paid": exit_order.fees_paid,
+                "final_pnl": position.pnl_usd
+            })
             
             # Update market-specific stats
             self._update_market_stats(position.market)
@@ -1096,8 +1117,7 @@ class RealisticMeanReversionDashboard:
         
         active_count = len(self.active_markets)
         signal_count = len([s for s in self.signals.values() if s.signal_type != "NEUTRAL"])
-        open_positions = sum(1 for m in self.market_stats.values() 
-                           if m['current_position'] is not None)
+        
         # Count different position types
         open_positions = len([p for p in self.positions if p.status == "OPEN"])
         pending_positions = len([p for p in self.positions if p.status == "PENDING"])
@@ -1174,7 +1194,7 @@ class RealisticMeanReversionDashboard:
             stats = self.market_stats[market]
             
             priority = 0
-            if stats['current_position']:
+            if stats['open_positions']:
                 priority += 1000  # Active positions first
             if signal and signal.signal_type != "NEUTRAL":
                 priority += signal.confidence  # Then by signal strength
@@ -1241,12 +1261,26 @@ class RealisticMeanReversionDashboard:
             elif stats['win_rate'] > 0:
                 win_rate_str = f"[red]{win_rate_str}[/red]"
             
-            # Status
-            current_pos = stats['current_position']
-            if current_pos:
-                pos_color = "green" if current_pos.signal_type == "BUY" else "red"
-                pos_symbol = "🟩 LONG" if current_pos.signal_type == "BUY" else "🟥 SHORT"
-                status_str = f"[{pos_color}]{pos_symbol} {current_pos.pnl_usd:+.1f}[/{pos_color}]"
+            # Status - show multiple positions if they exist
+            open_positions = stats['open_positions']
+            if open_positions:
+                if len(open_positions) == 1:
+                    pos = open_positions[0]
+                    pos_color = "green" if pos.signal_type == "BUY" else "red"
+                    pos_symbol = "🟩 LONG" if pos.signal_type == "BUY" else "🟥 SHORT"
+                    status_str = f"[{pos_color}]{pos_symbol} {pos.pnl_usd:+.1f}[/{pos_color}]"
+                else:
+                    # Multiple positions - show count and total PnL
+                    total_pnl = sum(pos.pnl_usd for pos in open_positions)
+                    long_count = sum(1 for pos in open_positions if pos.signal_type == "BUY")
+                    short_count = len(open_positions) - long_count
+                    
+                    if long_count > 0 and short_count > 0:
+                        status_str = f"[yellow]🟨 {len(open_positions)} POS {total_pnl:+.1f}[/yellow]"
+                    elif long_count > 0:
+                        status_str = f"[green]🟩 {long_count} LONG {total_pnl:+.1f}[/green]"
+                    else:
+                        status_str = f"[red]🟥 {short_count} SHORT {total_pnl:+.1f}[/red]"
             else:
                 status_str = "[blue]⚪ Monitoring[/blue]"
             
