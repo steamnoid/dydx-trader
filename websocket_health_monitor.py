@@ -22,8 +22,8 @@ class WebSocketHealthMonitor:
         self._monitor_thread = None
         
         # Connection health thresholds
-        self.max_silence_duration = 30  # Max seconds without messages before concern
-        self.max_stale_duration = 60   # Max seconds before forced reconnection
+        self.max_silence_duration = 2  # Max seconds without messages before concern
+        self.max_stale_duration = 3   # Max seconds before forced reconnection
         
     def start_monitoring(self):
         """Start the health monitoring thread"""

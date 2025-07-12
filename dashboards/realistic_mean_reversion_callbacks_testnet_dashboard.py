@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
 """
-Realistic Mean-Reversion Dashboard for dYdX v4 Trading
-Paper trading simulation with realistic market conditions and execution
+Multi-Crypto Mean-Reversion Dashboard for dYdX v4 Trading
+Paper trading simulation with 10-minute rolling window z-score strategy using minute-wise aggregation
+
+MULTI-CRYPTO STRATEGY SPECIFICATION:
+===================================
+
+ENTRY CRITERIA:
+- Markets: BTC-USD, ETH-USD, SOL-USD
+- Rolling window: 10 minutes (600 seconds) with minute-wise data aggregation
+- Z-score threshold: ±3.0 for entry
+- Position size: Fixed $10 USD per trade per market
+- Maximum positions: 1 position per market (max 3 total)
+
+EXIT CRITERIA:
+- Z-score returns to neutral (abs < 0.5)
+- Minimum holding: 30 minutes (1800 seconds)
+- Maximum holding: 2 hours (7200 seconds)
+- Emergency stop: -10% of position value
+
+REAL-TIME METRICS:
+- Current z-score and rolling statistics
+- Entry/exit prices and timestamps
+- Profit/loss tracking per trade
+- Trade duration and holding periods
+- Account balance and position status
 
 VALIDATED AGAINST dYdX v4 DOCUMENTATION:
 =====================================
@@ -68,6 +91,20 @@ class PricePoint:
     ask: float
     volume: float = 0.0
     spread_pct: float = 0.0
+
+@dataclass
+class MinuteBar:
+    """Aggregated price data for minute-wise analysis"""
+    timestamp: float  # Start of the minute
+    open_price: float
+    high_price: float
+    low_price: float
+    close_price: float
+    volume: float
+    bid: float
+    ask: float
+    spread_pct: float
+    trade_count: int = 0
 
 @dataclass
 class MeanReversionSignal:
@@ -316,21 +353,60 @@ class RealisticOrderSimulator:
 class RealisticMeanReversionStrategy:
     """Mean-reversion strategy with realistic execution logic"""
     
-    def __init__(self, lookback_seconds: int = 10, deviation_threshold: float = 1.5, dashboard=None):
-        self.lookback_seconds = lookback_seconds
-        self.deviation_threshold = deviation_threshold
-        self.price_history: Dict[str, Deque[PricePoint]] = defaultdict(lambda: deque(maxlen=100))
+    def __init__(self, lookback_seconds: int = 600, deviation_threshold: float = 3.0, dashboard=None):
+        # BTC-only strategy with 10-minute rolling window
+        self.lookback_seconds = lookback_seconds  # 600 seconds = 10 minutes
+        self.deviation_threshold = deviation_threshold  # 3.0 z-score threshold
+        self.price_history: Dict[str, Deque[PricePoint]] = defaultdict(lambda: deque(maxlen=1200))  # 20 minutes at 1 update/sec
+        
+        # NEW: Minute-wise aggregation for more stable statistics
+        self.minute_bars: Dict[str, Deque[MinuteBar]] = defaultdict(lambda: deque(maxlen=20))  # 20 minutes of minute bars
+        self.current_minute_data: Dict[str, List[PricePoint]] = defaultdict(list)  # Accumulator for current minute
+        
         self.order_simulator = RealisticOrderSimulator()
         self.dashboard = dashboard  # Reference to dashboard for account balance access
         
-        # Position sizing parameters - percentage-based on account balance
-        self.position_size_pct = 0.05  # 5% of account balance per trade
-        self.max_position_size_pct = 0.20  # Maximum 20% of account per position  
-        self.min_position_size_usd = 2.0  # Minimum $2 position size
+        # BTC-only position sizing parameters - fixed $10 position size
+        self.position_size_usd = 10.0  # Fixed $10 per trade
+        self.min_account_balance_usd = 20.0  # Minimum balance to trade $10 positions
+        
+    def _aggregate_minute_bar(self, market: str, current_time: float):
+        """Aggregate current minute data into a minute bar when crossing minute boundary"""
+        if market not in self.current_minute_data or not self.current_minute_data[market]:
+            return
+            
+        minute_data = self.current_minute_data[market]
+        
+        # Get the minute start time from the first data point in the accumulator
+        oldest_data_time = minute_data[0].timestamp
+        minute_start = int(oldest_data_time // 60) * 60  # Start of the minute being aggregated
+        
+        # Calculate minute bar statistics
+        prices = [p.price for p in minute_data]
+        volumes = [p.volume for p in minute_data]
+        
+        minute_bar = MinuteBar(
+            timestamp=minute_start,
+            open_price=prices[0],
+            high_price=max(prices),
+            low_price=min(prices),
+            close_price=prices[-1],
+            volume=sum(volumes),
+            bid=minute_data[-1].bid,  # Use last bid/ask
+            ask=minute_data[-1].ask,
+            spread_pct=minute_data[-1].spread_pct,
+            trade_count=len(minute_data)
+        )
+        
+        self.minute_bars[market].append(minute_bar)
+        
+        # Clear the current minute accumulator - this resets the timing
+        self.current_minute_data[market] = []
         
     def update_price(self, market: str, price_data: dict):
-        """Update price history with enhanced data"""
+        """Update price history with enhanced data and minute-wise aggregation"""
         current_time = time.time()
+        current_minute = int(current_time // 60) * 60
         
         bids = price_data.get('bids', [])
         asks = price_data.get('asks', [])
@@ -338,17 +414,35 @@ class RealisticMeanReversionStrategy:
         if not bids or not asks:
             return
             
-        bid = float(bids[0]['price'])
-        ask = float(asks[0]['price'])
+        try:
+            # Safely extract bid/ask prices with error handling
+            if not bids[0] or 'price' not in bids[0]:
+                return
+            if not asks[0] or 'price' not in asks[0]:
+                return
+                
+            bid = float(bids[0]['price'])
+            ask = float(asks[0]['price'])
+        except (KeyError, ValueError, TypeError, IndexError):
+            # Skip malformed price data
+            return
+            
         mid_price = (bid + ask) / 2
         
         # Calculate spread percentage
         spread_pct = ((ask - bid) / mid_price) * 100 if mid_price > 0 else 0
         
-        # Estimate volume (simplified)
-        bid_volume = sum(float(level.get('size', 0)) for level in bids[:5])
-        ask_volume = sum(float(level.get('size', 0)) for level in asks[:5])
-        total_volume = bid_volume + ask_volume
+        # Estimate volume (simplified) - handle missing volume data
+        try:
+            bid_volume = sum(float(level.get('size', 0)) for level in bids[:5])
+            ask_volume = sum(float(level.get('size', 0)) for level in asks[:5])
+            total_volume = bid_volume + ask_volume
+        except (ValueError, TypeError):
+            total_volume = 0.0
+        
+        # For BTC-only strategy, ensure we always have some volume data
+        if total_volume <= 0:
+            total_volume = 1.0  # Assume minimal volume for z-score calculations
         
         price_point = PricePoint(
             timestamp=current_time,
@@ -359,29 +453,85 @@ class RealisticMeanReversionStrategy:
             spread_pct=spread_pct
         )
         
+        # Add to high-frequency price history (for real-time updates)
         self.price_history[market].append(price_point)
+        
+        # NEW: Minute-wise aggregation logic - trigger when crossing minute boundary
+        # Check if we've moved to a new minute AND the previous minute is complete
+        last_minute_data = self.current_minute_data[market]
+        if last_minute_data and last_minute_data[0].timestamp // 60 != current_time // 60:
+            # We've moved to a new minute, aggregate the previous minute's data
+            oldest_data_time = last_minute_data[0].timestamp
+            previous_minute_start = int(oldest_data_time // 60) * 60
+            current_minute_start = int(current_time // 60) * 60
+            
+            # Aggregate the previous minute's data immediately when crossing boundary
+            self._aggregate_minute_bar(market, oldest_data_time)
+        
+        # Add current data point to minute accumulator
+        self.current_minute_data[market].append(price_point)
     
     def calculate_signal(self, market: str) -> Optional[MeanReversionSignal]:
-        """Calculate enhanced mean-reversion signal"""
-        if market not in self.price_history:
+        """Calculate enhanced mean-reversion signal using minute-wise aggregated data"""
+        if market not in self.minute_bars:
             return None
             
-        prices = self.price_history[market]
-        if len(prices) < 5:
+        minute_bars = self.minute_bars[market]
+        
+        # IMPORTANT: Check if we have current minute data that should be aggregated
+        current_time = time.time()
+        current_minute_start = int(current_time // 60) * 60
+        
+        if (market in self.current_minute_data and 
+            self.current_minute_data[market] and 
+            len(self.current_minute_data[market]) > 0):
+            
+            oldest_data_time = self.current_minute_data[market][0].timestamp
+            oldest_minute_start = int(oldest_data_time // 60) * 60
+            
+            # If the current minute data is from a previous minute (should be aggregated)
+            # OR if we have been accumulating data for more than 60 seconds
+            if (oldest_minute_start < current_minute_start or 
+                current_time - oldest_data_time >= 60):
+                self._aggregate_minute_bar(market, oldest_data_time)
+        
+        # Re-check minute bars after potential aggregation
+        minute_bars = self.minute_bars[market]
+        
+        # Warmup: Set to 11 minutes for stable statistics
+        # Need 11 bars minimum: 1 to ignore + 10 for rolling window calculation
+        min_warmup_bars = 11  # Minimum 11 minute bars (1 to ignore + 10 for window)
+        if len(minute_bars) < min_warmup_bars:
+            return None
+        
+        # ADDITIONAL WARMUP CHECK: Ensure at least 11 minutes have elapsed since dashboard started
+        # Need 11 minutes: 1 minute to ignore + 10 minutes for rolling window
+        min_warmup_time_seconds = 660  # 11 minutes in seconds
+        time_elapsed = current_time - self.dashboard.session_start
+        if time_elapsed < min_warmup_time_seconds:
             return None
             
         current_time = time.time()
-        recent_prices = [
-            p for p in prices 
-            if current_time - p.timestamp <= self.lookback_seconds
-        ]
+        lookback_minutes = self.lookback_seconds // 60  # Convert to minutes (should be 10)
         
-        if len(recent_prices) < 3:
+        # Use minute bars for rolling window calculation (more stable than high-frequency data)
+        # Use last N bars instead of time-based filtering to ensure we always have enough bars
+        min_rolling_bars = max(10, self.lookback_seconds // 60)  # At least 10 bars for 10-minute window
+        
+        # IGNORE FIRST MINUTE BIN: Skip the very first minute bar to ensure only complete/reliable bars
+        # We need min_rolling_bars + 1 total bars to have min_rolling_bars usable bars after skipping the first
+        min_total_bars_needed = min_rolling_bars + 1
+        
+        if len(minute_bars) >= min_total_bars_needed:
+            # Skip the first minute bar and use the most recent N bars for the rolling window
+            available_bars = list(minute_bars)[1:]  # Skip first minute bin
+            recent_bars = available_bars[-min_rolling_bars:]  # Take last N bars from remaining
+        else:
+            # Not enough bars yet (need at least min_rolling_bars + 1 to skip first and have enough for window)
             return None
             
-        # Optimized statistical analysis - use direct calculations instead of statistics module
-        price_values = [p.price for p in recent_prices]
-        spread_values = [p.spread_pct for p in recent_prices]
+        # Use minute bar close prices for z-score calculation (more stable)
+        price_values = [bar.close_price for bar in recent_bars]
         
         # Fast mean calculation
         n = len(price_values)
@@ -395,39 +545,51 @@ class RealisticMeanReversionStrategy:
         else:
             std_dev = 0
             
-        # Fast spread mean
-        mean_spread = sum(spread_values) / len(spread_values)
-        
-        if std_dev == 0:
-            return None
+        # Get current price from most recent high-frequency data or latest minute bar
+        if market in self.price_history and self.price_history[market]:
+            current_price = self.price_history[market][-1].price
+            current_volume = self.price_history[market][-1].volume
+        else:
+            current_price = recent_bars[-1].close_price
+            current_volume = recent_bars[-1].volume
             
-        current_point = recent_prices[-1]
-        current_price = current_point.price
         deviation_pct = ((current_price - mean_price) / mean_price) * 100
-        z_score = (current_price - mean_price) / std_dev
         
-        # Adjust signal strength based on market conditions
+
+        
+        # BTC-only strategy: strict z-score calculation using minute-aggregated data
+        if std_dev == 0:
+            z_score = 0.0  # Set to 0 to avoid division errors as per specification
+        else:
+            z_score = (current_price - mean_price) / std_dev
+        
+        # BTC-only strategy: use strict z-score thresholds (±3.0 for entry)
         signal_type = "NEUTRAL"
         confidence = 0.0
         
-        # Consider spread conditions for signal quality
-        spread_penalty = max(0, (mean_spread - 0.05) * 10)  # Penalize wide spreads
+        # Volume check: only trade when volume > 0 (per specification)
+        if current_volume <= 0:
+            return MeanReversionSignal(
+                market=market,
+                timestamp=current_time,
+                signal_type="NEUTRAL",
+                deviation=deviation_pct,
+                entry_price=current_price,
+                confidence=0.0,
+                z_score=z_score
+            )
         
-        if abs(z_score) > self.deviation_threshold:
-            if current_price > mean_price:
-                signal_type = "SELL"
-            else:
-                signal_type = "BUY"
-            
-            # Adjust confidence based on multiple factors
-            base_confidence = min(100, abs(z_score) * 25)
-            spread_adjusted_confidence = max(0, base_confidence - spread_penalty)
-            
-            # Volume consideration (simplified)
-            volume_factor = min(1.2, current_point.volume / 10000) if current_point.volume > 0 else 0.8
-            confidence = spread_adjusted_confidence * volume_factor
+        # Entry conditions: z-score < -3.0 (long) or z-score > 3.0 (short)
+        # FIXED: Use ±3.0 threshold for stricter entry criteria
+        if z_score <= -3.0:
+            signal_type = "BUY"  # Long position when price below mean
+            confidence = min(100, abs(z_score) * 25)
+        elif z_score >= 3.0:
+            signal_type = "SELL"  # Short position when price above mean  
+            confidence = min(100, abs(z_score) * 25)
         
-        return MeanReversionSignal(
+        # Create the signal object
+        signal = MeanReversionSignal(
             market=market,
             timestamp=current_time,
             signal_type=signal_type,
@@ -436,29 +598,44 @@ class RealisticMeanReversionStrategy:
             confidence=confidence,
             z_score=z_score
         )
+        
+        return signal
     
     def calculate_position_size(self, market: str, signal: MeanReversionSignal, 
                               current_price: float) -> float:
-        """Calculate realistic position size based on account balance and signal strength"""
+        """Calculate position size for multi-crypto strategy - $10 position per market"""
         
-        # Base size as percentage of current account balance
-        confidence_factor = signal.confidence / 100.0
-        base_size_usd = self.dashboard.account_balance * self.position_size_pct
-        size_usd = base_size_usd * confidence_factor
+        # Multi-crypto strategy: trade BTC, ETH, SOL with $10 each
+        supported_markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
         
-        # Adjust for volatility (higher volatility = smaller size)
-        volatility_factor = max(0.5, 1.0 - (abs(signal.z_score) - 2.0) * 0.1)
-        size_usd *= volatility_factor
+        if market in supported_markets:
+            # Check if account has sufficient balance for $10 trade
+            if self.dashboard.account_balance >= self.position_size_usd:
+                # Calculate crypto amount for $10 position
+                crypto_amount = self.position_size_usd / current_price
+                
+                # Set appropriate precision based on market
+                if market == "BTC-USD":
+                    return round(crypto_amount, 6)  # 6 decimal places for BTC
+                elif market == "ETH-USD":
+                    return round(crypto_amount, 5)  # 5 decimal places for ETH
+                elif market == "SOL-USD":
+                    return round(crypto_amount, 3)  # 3 decimal places for SOL
+            else:
+                # Insufficient balance - calculate fractional position we can afford
+                affordable_usd = self.dashboard.account_balance * 0.95  # 5% buffer
+                affordable_crypto = affordable_usd / current_price
+                
+                # Minimum amounts based on market
+                if market == "BTC-USD":
+                    return max(0.000001, affordable_crypto)
+                elif market == "ETH-USD":
+                    return max(0.00001, affordable_crypto)
+                elif market == "SOL-USD":
+                    return max(0.001, affordable_crypto)
         
-        # Apply position sizing limits
-        max_size_usd = self.dashboard.account_balance * self.max_position_size_pct
-        size_usd = max(self.min_position_size_usd, 
-                      min(max_size_usd, size_usd))
-        
-        # Convert to token size
-        token_size = size_usd / current_price
-        
-        return round(token_size, 6)  # Round to reasonable precision
+        # For unsupported markets
+        return 0.0
 
 class RealisticMeanReversionDashboard:
     """Enhanced dashboard with realistic paper trading"""
@@ -473,12 +650,26 @@ class RealisticMeanReversionDashboard:
             reconnect_callback=self._handle_websocket_reconnection
         )
         
-        # Account management - $50 starting capital (realistic for testing)
-        self.starting_capital = 50.0
-        self.account_balance = 50.0  # Updated with realized P&L
+        # Subscription and health monitor tracking
+        self.subscribed_markets = set()  # Markets we've confirmed subscription for
+        self.markets_with_updates = set()  # Markets that have received at least 1 update
+        self.health_monitor_started = False  # Track if health monitor has been started
         
-        # Initialize strategy with dashboard reference for account balance access
-        self.strategy = RealisticMeanReversionStrategy(dashboard=self)
+        # Account management - $100 starting capital for $10 position trades
+        self.starting_capital = 100.0  # $100 starting capital
+        self.account_balance = 100.0  # Updated with realized P&L
+        
+        # Multi-crypto strategy parameters
+        self.position_size_usd = 10.0  # Fixed $10 per trade per market
+        self.min_holding_period_seconds = 1800  # 30 minutes minimum holding
+        self.max_positions_per_market = 1  # One position per market (max 3 total)
+        
+        # Initialize multi-crypto strategy with dashboard reference for account balance access
+        self.strategy = RealisticMeanReversionStrategy(
+            lookback_seconds=600,  # 600s = 10 minutes
+            deviation_threshold=3.0,  # 3.0 z-score threshold
+            dashboard=self
+        )
         
         # Market tracking
         self.active_markets = set()
@@ -521,44 +712,23 @@ class RealisticMeanReversionDashboard:
         self.enable_trade_logging = True
         self._setup_trade_publisher()
         
+        # Position entry lock to prevent rapid duplicate entries
+        self._entry_lock = False
+        
     def _fetch_usd_markets(self):
-        """Fetch all active USD markets from dYdX API"""
-        # try:
-        #     response = requests.get('https://indexer.dydx.trade/v4/perpetualMarkets', timeout=10)
-        #     if response.status_code == 200:
-        #         data = response.json()
-        #         if 'markets' in data:
-        #             markets = data['markets']
-                    
-        #             usd_markets = []
-        #             for name, market in markets.items():
-        #                 if (market.get('status') == 'ACTIVE' and 
-        #                     name.endswith('-USD') and 
-        #                     market.get('marketType') in ['CROSS', 'ISOLATED']):
-        #                     usd_markets.append(name)
-                    
-        #             return sorted(usd_markets)
-            
-        #     return self._get_fallback_markets()
-            
-        # except Exception as e:
-        #     self.console.print(f"[yellow]⚠️  Error fetching markets: {e}, using fallback[/yellow]")
-        #     return self._get_fallback_markets()
+        """Multi-crypto strategy - trade BTC, ETH, and SOL"""
         return self._get_fallback_markets()
     
     def _get_fallback_markets(self):
-        """Fallback markets in case API fetch fails"""
-        return [
-            "BTC-USD",
-            "ETH-USD"
-        ]
+        """Multi-crypto strategy - trade BTC, ETH, and SOL"""
+        return ["BTC-USD", "ETH-USD", "SOL-USD"]
     
     def start(self):
         """Start the realistic dashboard"""
-        self.console.print("[cyan]🚀 Starting Realistic Mean-Reversion Dashboard...[/cyan]")
+        self.console.print("[cyan]🚀 Starting Multi-Crypto Mean-Reversion Dashboard...[/cyan]")
         markets = self._fetch_usd_markets()
         
-        self.console.print(f"[green]✅ Found {len(markets)} active USD markets[/green]")
+        self.console.print(f"[green]✅ Multi-crypto strategy initialized (BTC, ETH, SOL) with 10-minute rolling window using minute-wise aggregation[/green]")
         
         # Connect to dYdX WebSocket stream
         self.console.print("[cyan]🔗 Connecting to dYdX WebSocket...[/cyan]")
@@ -572,10 +742,7 @@ class RealisticMeanReversionDashboard:
             return
         
         self.console.print("[green]✅ Connected to dYdX WebSocket[/green]")
-        
-        # Start WebSocket health monitoring
-        self.health_monitor.start_monitoring()
-        self.console.print("[green]✅ WebSocket health monitoring started[/green]")
+        self.console.print("[cyan]🔍 WebSocket health monitoring will start after all subscriptions are confirmed and receive updates[/cyan]")
         
         # Set up market subscriptions
         subscription_errors = 0
@@ -586,6 +753,8 @@ class RealisticMeanReversionDashboard:
                     market, 
                     lambda data, market=market: self._handle_orderbook_update(market, data)
                 )
+                # Mark market as subscribed (confirmation will be handled in message processing)
+                self.subscribed_markets.add(market)
             except Exception as e:
                 subscription_errors += 1
                 self.console.print(f"[red]Error subscribing to {market}: {e}[/red]")
@@ -607,18 +776,37 @@ class RealisticMeanReversionDashboard:
             finally:
                 # Clean shutdown
                 self.console.print("[cyan]🔄 Shutting down WebSocket connections...[/cyan]")
-                self.health_monitor.stop_monitoring()
+                if self.health_monitor_started:
+                    self.health_monitor.stop_monitoring()
                 try:
                     self.stream.disconnect()
                     self.console.print("[green]✅ WebSocket disconnected cleanly[/green]")
                 except:
                     pass
     
+    def _check_and_start_health_monitor(self):
+        """Start health monitor only after all subscriptions are confirmed and have received updates"""
+        if (not self.health_monitor_started and 
+            len(self.markets_with_updates) >= len(self.subscribed_markets) and
+            len(self.subscribed_markets) > 0):
+            
+            self.health_monitor.start_monitoring()
+            self.health_monitor_started = True
+            self.console.print("[green]✅ WebSocket health monitoring started (all subscriptions confirmed with updates)[/green]")
+    
     def _handle_orderbook_update(self, market: str, data: dict):
         """Handle orderbook updates with realistic trading logic"""
         try:
-            # Notify health monitor of message received
-            self.health_monitor.on_message_received()
+            # Track that this market has received an update
+            if market not in self.markets_with_updates:
+                self.markets_with_updates.add(market)
+                
+                # Check if we should start health monitor now
+                self._check_and_start_health_monitor()
+            
+            # Notify health monitor of message received (only if started)
+            if self.health_monitor_started:
+                self.health_monitor.on_message_received()
             
             # Update strategy with new price data
             self.strategy.update_price(market, data)
@@ -646,11 +834,14 @@ class RealisticMeanReversionDashboard:
             if signal:
                 self.signals[market] = signal
                 
-                # Check for position entry opportunities
-                # if (signal.confidence > 75 and 
-                if(    signal.signal_type != "NEUTRAL" and
+                # Check for position entry opportunities with strict z-score threshold
+                if (abs(signal.z_score) >= 3.0 and  # Strict 3.0 z-score threshold
+                    signal.signal_type != "NEUTRAL" and
+                    not self._entry_lock and  # Prevent rapid duplicate entries
                     self._can_open_position(market)):
+                    self._entry_lock = True  # Set lock before entry
                     self._execute_entry_order(signal)
+                    # Note: entry lock released inside _execute_entry_order after position is fully tracked
             
             # Update existing positions
             self._update_positions()
@@ -662,23 +853,27 @@ class RealisticMeanReversionDashboard:
             self.console.print(f"[red]Error processing {market}: {e}[/red]")
     
     def _can_open_position(self, market: str) -> bool:
-        """Check if we can open a new position based on risk limits"""
+        """Check if we can open a new position in the specified market"""
         
-        # Check maximum open positions across all markets
-        open_positions = sum(len(m['open_positions']) for m in self.market_stats.values())
-        if open_positions >= self.max_open_positions:
+        # Multi-crypto strategy: allow BTC-USD, ETH-USD, SOL-USD
+        supported_markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+        if market not in supported_markets:
             return False
         
-        # Check total exposure
-        total_exposure = sum(abs(pos.size * self.current_prices.get(pos.market, PricePoint(0,0,0,0)).price)
-                           for pos in self.positions if pos.status == "OPEN")
-        if total_exposure >= self.max_total_exposure_usd:
+        # Check if we already have an open position in this specific market
+        open_positions_in_market = [pos for pos in self.positions 
+                                   if pos.market == market and pos.status == "OPEN"]
+        
+        # Allow max 1 position per market (so max 3 total positions)
+        if len(open_positions_in_market) >= 1:
             return False
         
-        # Check daily loss limit
-        if self.total_pnl_usd < -self.daily_loss_limit_usd:
-            return False
-            
+        # Check if we have sufficient account balance for $10 trade
+        current_point = self.current_prices.get(market)
+        if current_point:
+            if self.account_balance < self.position_size_usd:
+                return False
+        
         return True
     
     def _execute_entry_order(self, signal: MeanReversionSignal):
@@ -720,73 +915,41 @@ class RealisticMeanReversionDashboard:
             )
         
         position = Position(
-                market=market,
-                entry_time=order.timestamp,
-                entry_price=limit_price,
-                signal_type=signal.signal_type,
-                size=position_size,
-                status="PENDING",
-                entry_order=order,
-                result="pending",
-                order_entry_time=order_entry_time,
-                order_expiration_time=order_expiration_time
+            market=market,
+            entry_time=order.timestamp,
+            entry_price=limit_price,
+            signal_type=signal.signal_type,
+            size=position_size,
+            status="PENDING",
+            entry_order=order,
+            result="pending",
+            order_entry_time=order_entry_time,
+            order_expiration_time=order_expiration_time
         )
-            
-        # Log pending entry order
-        self._log_trade("ENTRY", position, {
-                "order_type": "LIMIT",
-                "order_expiration": order_expiration_time,
-                "signal_confidence": signal.confidence
-            })
         
         if order.status == "FILLED":
-            # Create position from filled MAKER order (immediate fill)
-            position = Position(
-                market=market,
-                entry_time=order.timestamp,
-                entry_price=order.avg_fill_price,
-                signal_type=signal.signal_type,
-                size=order.filled_size,
-                status="OPEN",
-                entry_order=order,
-                fees_total=order.fees_paid,  # This will be negative (rebate)
-                result="pending"
-            )
+            # Update position to OPEN status for filled MAKER order
+            position.status = "OPEN"
+            position.entry_price = order.avg_fill_price
+            position.size = order.filled_size
+            position.fees_total = order.fees_paid  # This will be negative (rebate)
             
-            self.positions.append(position)
+            # Add to open positions list
             self.market_stats[market]['open_positions'].append(position)
-            self.market_stats[market]['total_positions'] += 1
-            self.position_count += 1
-            self.total_fees_paid += order.fees_paid  # Adding negative value (rebate)
             
-            # Log filled entry order immediately
+            # Log filled entry order
             self._log_trade("FILL", position, {
-                "order_type": "LIMIT",
+                "fill_price": order.avg_fill_price,
                 "fees_paid": order.fees_paid,
-                "signal_confidence": signal.confidence
+                "latency_ms": order.latency_ms
             })
             
         elif order.status == "PENDING":
-            # Create pending position with TTL expiration tracking
-            pending_position = Position(
-                market=market,
-                entry_time=order.timestamp,
-                entry_price=limit_price,
-                signal_type=signal.signal_type,
-                size=position_size,
-                status="PENDING",
-                entry_order=order,
-                result="pending",
-                order_entry_time=order_entry_time,
-                order_expiration_time=order_expiration_time
-            )
+            # Add pending position to tracking (will be filled later or expire)
+            self.market_stats[market]['open_positions'].append(position)
             
-            self.positions.append(pending_position)
-            self.market_stats[market]['open_positions'].append(pending_position)
-            self.market_stats[market]['total_positions'] += 1
-            
-            # Log pending entry order immediately
-            self._log_trade("ENTRY", pending_position, {
+            # Log pending entry order
+            self._log_trade("ENTRY", position, {
                 "order_type": "LIMIT",
                 "order_expiration": order_expiration_time,
                 "signal_confidence": signal.confidence
@@ -794,21 +957,16 @@ class RealisticMeanReversionDashboard:
             
         else:  # CANCELLED or immediate MISS
             # Create missed position for tracking strategy effectiveness
-            missed_position = Position(
-                market=market,
-                entry_time=time.time(),
-                entry_price=limit_price,
-                signal_type=signal.signal_type,
-                size=position_size,
-                status="MISSED",
-                result="missed",
-                exit_type="none",
-                order_entry_time=order_entry_time,
-                order_expiration_time=order_expiration_time
-            )
-            
-            self.positions.append(missed_position)
-            self.market_stats[market]['total_positions'] += 1
+            position.status = "MISSED"
+            position.result = "missed"
+            position.exit_type = "cancelled"
+        
+        # Add position to tracking regardless of status
+        self.positions.append(position)
+        self.market_stats[market]['total_positions'] += 1
+        
+        # Release entry lock AFTER position is fully tracked to prevent race conditions
+        self._entry_lock = False
         
         
     
@@ -910,62 +1068,33 @@ class RealisticMeanReversionDashboard:
                 position.max_profit = max(position.max_profit, position.pnl_usd)
                 position.max_loss = min(position.max_loss, position.pnl_usd)
                 
-                # Exit logic: multiple conditions with timeout handling
+                # Exit logic: BTC-only strategy with 30-minute minimum holding and z-score exit
                 should_exit = False
                 exit_reason = ""
                 
                 # Calculate holding time
                 holding_time = current_time - position.entry_time
                 
-                # 1. Hard timeout (30 seconds max - market conditions can change quickly)
-                if holding_time > 120:  # 30 second hard timeout
-                    should_exit = True
-                    exit_reason = "timeout"
-                    
-                    # If we can't exit after timeout, mark as timeout and close artificially
-                    if holding_time > 35:  # 5 second grace period for exit attempts
-                        # Force close position due to timeout
-                        position.status = "CLOSED"
-                        position.exit_time = current_time
-                        position.exit_price = current_point.bid if position.signal_type == "BUY" else current_point.ask
-                        position.holding_time = holding_time
-                        position.exit_type = "timeout"
-                        position.result = "win" if position.pnl_usd > 0 else "loss"
-                        
-                        # Update statistics for timeout
-                        market_stats = self.market_stats[position.market]
-                        # Remove from open positions
-                        if position in market_stats['open_positions']:
-                            market_stats['open_positions'].remove(position)
-                        market_stats['total_pnl_usd'] += position.pnl_usd
-                        market_stats['positions'].append(position)
-                        
-                        if position.pnl_usd > 0:
-                            self.winning_positions += 1
-                            market_stats['winning_positions'] += 1
-                        
-                        self.total_pnl_usd += position.pnl_usd
-                        self._update_market_stats(position.market)
-                        
-                        continue
+                # 1. Minimum holding period: 30 minutes (1800 seconds)
+                if holding_time < self.min_holding_period_seconds:
+                    # Don't exit before minimum holding period
+                    continue
                 
-                # 2. Profit target
-                elif position.pnl_usd > 50:  # $50 profit target
+                # 2. Z-score exit criterion: exit when z-score crosses back to neutral (abs < 0.5)
+                market_signal = self.signals.get(position.market)
+                if market_signal and abs(market_signal.z_score) < 0.5:
                     should_exit = True
-                    exit_reason = "profit_target"
+                    exit_reason = "z_score_neutral"
                 
-                # 3. Stop loss
-                elif position.pnl_usd < -25:  # $25 stop loss
+                # 3. Maximum holding period: 2 hours (7200 seconds)
+                elif holding_time > 7200:
                     should_exit = True
-                    exit_reason = "stop_loss"
+                    exit_reason = "max_holding_timeout"
                 
-                # 4. Signal reversal
-                elif market_signal := self.signals.get(position.market):
-                    if (market_signal.signal_type != "NEUTRAL" and 
-                        market_signal.signal_type != position.signal_type and
-                        market_signal.confidence > 60):
-                        should_exit = True
-                        exit_reason = "signal_reversal"
+                # 4. Emergency stop loss: -10% of $10 position value = -$1
+                elif position.pnl_usd < -1.0:  # $1 stop loss for $10 position
+                    should_exit = True
+                    exit_reason = "emergency_stop_loss"
                 
                 if should_exit:
                     self._execute_exit_order(position, exit_reason)
@@ -1097,13 +1226,15 @@ class RealisticMeanReversionDashboard:
         markets_table = self._create_markets_table()
         stats_panel = self._create_stats_panel()
         positions_table = self._create_positions_table()
+        multi_crypto_strategy_panel = self._create_multi_crypto_strategy_panel()  # Use multi-crypto strategy panel
         
         layout.split_column(
-            Layout(header, size=4),
+            Layout(header, size=6),
             Layout(
                 Columns([markets_table, stats_panel], equal=True)
             ),
-            Layout(positions_table, size=30)
+            Layout(positions_table, size=30),
+            Layout(multi_crypto_strategy_panel, size=10)  # Add multi-crypto strategy panel to layout
         )
         
         return layout
@@ -1125,7 +1256,7 @@ class RealisticMeanReversionDashboard:
         missed_positions = len([p for p in self.positions if p.status == "MISSED"])
         
         header_text = Text()
-        header_text.append("🎯 REALISTIC MAKER-ONLY DASHBOARD ", style="bold blue")
+        header_text.append("🚀 DYDX LIVE TRADING - MEAN REVERSION STRATEGY ", style="bold blue")
         header_text.append(f"| Markets: {active_count} ", style="white")
         header_text.append(f"| Signals: {signal_count} ", style="green")
         header_text.append(f"| Open: {open_positions} ", style="yellow")
@@ -1147,6 +1278,24 @@ class RealisticMeanReversionDashboard:
         header_text.append(f"\nSession: {int(hours):02d}:{int(minutes):02d}:{int(seconds):02d} ", 
                           style="magenta")
         header_text.append(f"| Updates: {self.update_count} ", style="cyan")
+        
+        # Current minute bin information
+        current_minute_timestamp = int(time.time() // 60) * 60
+        current_minute_str = datetime.fromtimestamp(current_minute_timestamp).strftime('%H:%M')
+        header_text.append(f"| Minute Bin: {current_minute_str} ", style="yellow")
+        
+        # Message counts for current minute bin for each market
+        market_counts = []
+        total_current_messages = 0
+        for market in ["BTC-USD", "ETH-USD", "SOL-USD"]:
+            if market in self.strategy.current_minute_data:
+                count = len(self.strategy.current_minute_data[market])
+                total_current_messages += count
+                market_counts.append(f"{market.split('-')[0]}:{count}")
+        
+        header_text.append(f"| Msgs: {total_current_messages} ", style="cyan")
+        if market_counts:
+            header_text.append(f"({', '.join(market_counts)}) ", style="white")
         
         # WebSocket health status
         health_stats = self.health_monitor.get_health_stats()
@@ -1296,7 +1445,7 @@ class RealisticMeanReversionDashboard:
                 status_str
             )
         
-        title = f"📊 Market Analysis - Realistic Trading Simulation"
+        title = f"📊 BTC-USD Analysis - 10-Minute Rolling Z-Score Strategy"
         return Panel(table, title=title, border_style="cyan")
     
     def _create_stats_panel(self) -> Panel:
@@ -1545,6 +1694,112 @@ class RealisticMeanReversionDashboard:
         
         return Panel(table, title="💼 Realistic Position Tracking", border_style="yellow")
     
+    def _create_multi_crypto_strategy_panel(self) -> Panel:
+        """Create multi-crypto strategy metrics panel with real-time z-score and trade details"""
+        
+        content = []
+        
+        # Strategy status header
+        content.append("[bold cyan]🌟 MULTI-CRYPTO MEAN REVERSION STRATEGY[/bold cyan]")
+        content.append("")
+        
+        # Markets overview
+        markets = ["BTC-USD", "ETH-USD", "SOL-USD"]
+        content.append("[bold white]Market Status:[/bold white]")
+        
+        for market in markets:
+            market_data = self.current_prices.get(market)
+            market_signal = self.signals.get(market)
+            market_stats = self.market_stats[market]
+            
+            symbol = market.split('-')[0]
+            
+            if market_data and market_signal:
+                price_str = f"${market_data.price:,.2f}"
+                z_score_str = f"{market_signal.z_score:+.3f}"
+                
+                # Color z-score based on significance
+                if abs(market_signal.z_score) >= 3.0:
+                    z_score_str = f"[red]{z_score_str}[/red]"
+                elif abs(market_signal.z_score) >= 1.0:
+                    z_score_str = f"[yellow]{z_score_str}[/yellow]"
+                else:
+                    z_score_str = f"[green]{z_score_str}[/green]"
+                
+                signal_color = "green" if market_signal.signal_type == "BUY" else "red" if market_signal.signal_type == "SELL" else "white"
+                content.append(f"• {symbol}: {price_str} | Z: {z_score_str} | [{signal_color}]{market_signal.signal_type}[/{signal_color}]")
+            else:
+                content.append(f"• {symbol}: [yellow]Warming up...[/yellow]")
+        
+        content.append("")
+        
+        # Strategy parameters
+        content.append("[bold white]Strategy Parameters:[/bold white]")
+        content.append(f"• Markets: [cyan]BTC, ETH, SOL[/cyan]")
+        content.append(f"• Rolling Window: [cyan]10 minutes (minute-aggregated)[/cyan]")
+        content.append(f"• Entry Z-Score: [cyan]±3.0[/cyan]")
+        content.append(f"• Exit Z-Score: [cyan]±0.5[/cyan]")
+        content.append(f"• Min Holding: [cyan]30 minutes[/cyan]")
+        content.append(f"• Position Size: [cyan]$10 USD per market[/cyan]")
+        content.append(f"• Max Positions: [cyan]1 per market (3 total)[/cyan]")
+        
+        content.append("")
+        
+        # Current positions across all markets
+        total_open_positions = sum(len(self.market_stats[market]['open_positions']) for market in markets)
+        
+        if total_open_positions > 0:
+            content.append(f"[bold white]Open Positions ({total_open_positions}):[/bold white]")
+            
+            for market in markets:
+                open_positions = self.market_stats[market]['open_positions']
+                if open_positions:
+                    pos = open_positions[0]  # Only one position per market
+                    symbol = market.split('-')[0]
+                    holding_minutes = (time.time() - pos.entry_time) / 60
+                    pnl_color = "green" if pos.pnl_usd > 0 else "red"
+                    pos_type_color = "green" if pos.signal_type == "BUY" else "red"
+                    
+                    content.append(f"• {symbol}: [{pos_type_color}]{pos.signal_type}[/{pos_type_color}] | ${pos.entry_price:,.2f} | [{pnl_color}]${pos.pnl_usd:+,.2f}[/{pnl_color}] | {holding_minutes:.0f}min")
+        else:
+            content.append("[bold white]Open Positions:[/bold white]")
+            content.append("• Status: [blue]⚪ No positions open[/blue]")
+            content.append("• Waiting for: [white]Z-score ≥ ±3.0 signals[/white]")
+        
+        content.append("")
+        
+        # Session performance across all markets
+        content.append("[bold white]Session Performance:[/bold white]")
+        total_trades = sum(self.market_stats[market]['total_positions'] for market in markets)
+        total_pnl = sum(self.market_stats[market]['total_pnl_usd'] for market in markets)
+        
+        if total_trades > 0:
+            winning_trades = sum(self.market_stats[market]['winning_positions'] for market in markets)
+            win_rate = (winning_trades / total_trades) * 100
+            pnl_color = "green" if total_pnl > 0 else "red"
+            
+            content.append(f"• Total Trades: [white]{total_trades}[/white]")
+            content.append(f"• Win Rate: [white]{win_rate:.0f}%[/white]")
+            content.append(f"• Net P&L: [{pnl_color}]${total_pnl:+,.2f}[/{pnl_color}]")
+            
+            # Per-market breakdown
+            for market in markets:
+                symbol = market.split('-')[0]
+                market_trades = self.market_stats[market]['total_positions']
+                market_pnl = self.market_stats[market]['total_pnl_usd']
+                if market_trades > 0:
+                    market_pnl_color = "green" if market_pnl > 0 else "red"
+                    content.append(f"  - {symbol}: {market_trades} trades | [{market_pnl_color}]${market_pnl:+.2f}[/{market_pnl_color}]")
+        else:
+            content.append("• Total Trades: [white]0[/white]")
+            content.append("• Status: [yellow]Waiting for first signals[/yellow]")
+        
+        return Panel(
+            "\n".join(content),
+            title="🎯 DYDX Trading Dashboard - Live Performance",
+            border_style="cyan"
+        )
+
     def _print_final_summary(self):
         """Print comprehensive final performance summary for realistic MAKER trading"""
         # total_attempts = len(all_positions)
@@ -1697,17 +1952,25 @@ class RealisticMeanReversionDashboard:
         try:
             self.console.print("[yellow]🔄 WebSocket reconnection initiated...[/yellow]")
             
-            # Disconnect current connection
+            # Reset connection state instead of calling non-existent disconnect()
             try:
-                self.stream.disconnect()
+                self.stream.reset_connection_state()
             except:
-                pass  # Ignore disconnect errors
+                pass  # Ignore reset errors
             
             time.sleep(2)  # Brief pause before reconnection
             
             # Attempt reconnection
             if self.stream.connect():
                 self.console.print("[green]✅ WebSocket reconnected successfully[/green]")
+                
+                # Wait for connection to be fully established before resubscribing
+                time.sleep(1)
+                
+                # Verify connection is actually established
+                if not self.stream.is_connected():
+                    self.console.print("[red]❌ WebSocket connection not properly established[/red]")
+                    return False
                 
                 # Resubscribe to all active markets
                 subscription_errors = 0
